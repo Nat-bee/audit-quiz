@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>CloudTrail Investigation Quiz</h1>
-    <p class="subtitle">AI Agent Incident — Athena Query Exercise</p>
+    <p class="subtitle">AI Agent Incident — SQL Query Exercise</p>
     <div id="status-bar"></div>
   </header>
 
@@ -37,7 +37,7 @@
 
       <div id="editor-area">
         <label for="sql-input">SQL Query</label>
-        <textarea id="sql-input" spellcheck="false" placeholder="SELECT * FROM security_logs.cloudtrail_logs LIMIT 10;"></textarea>
+        <textarea id="sql-input" spellcheck="false" placeholder="SELECT * FROM cloudtrail_logs LIMIT 10;"></textarea>
         <div id="editor-actions">
           <button id="btn-run" onclick="runQuery()">Run Query</button>
           <button id="btn-check" onclick="checkAnswer()">Check Answer</button>
@@ -59,7 +59,7 @@
 
   <footer>
     <div class="schema-ref">
-      <strong>Table:</strong> <code>security_logs.cloudtrail_logs</code><br>
+      <strong>Table:</strong> <code>cloudtrail_logs</code><br>
       <strong>Columns:</strong>
       <code>eventtime</code>, <code>eventsource</code>, <code>eventname</code>,
       <code>awsregion</code>, <code>sourceipaddress</code>, <code>useragent</code>,
@@ -205,7 +205,7 @@
           return;
         }
       } catch {}
-      bar.textContent = 'Initializing Athena... (first startup downloads ~1.5GB, please wait)';
+      bar.textContent = 'Initializing...';
       bar.className = 'status-init';
       setTimeout(checkHealth, 5000);
     }

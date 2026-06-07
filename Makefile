@@ -1,9 +1,8 @@
-.PHONY: up down logs query clean
+.PHONY: up down logs run clean
 
 up:
 	docker compose up -d --build
 	@echo "Quiz app: http://localhost:3000"
-	@echo "LocalStack: http://localhost:4566"
 
 down:
 	docker compose down
@@ -11,12 +10,8 @@ down:
 logs:
 	docker compose logs -f
 
-query:
-	@read -p "SQL> " sql; \
-	awslocal athena start-query-execution \
-		--query-string "$$sql" \
-		--query-execution-context Database=security_logs \
-		--result-configuration OutputLocation=s3://athena-results/
+run:
+	DATA_DIR=./data python app/main.py
 
 clean:
 	docker compose down -v

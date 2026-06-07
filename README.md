@@ -1,6 +1,8 @@
 # CloudTrail Investigation Quiz
 
-Pre-learning exercise for Security Camp 2026 D2. Query CloudTrail logs with Athena on LocalStack to investigate an AI agent compromise.
+Pre-learning exercise for Security Camp 2026 D2. Query CloudTrail logs with SQL to investigate an AI agent compromise.
+
+Uses [DuckDB](https://duckdb.org/) to query JSONL data directly — no cloud services, no API keys, no large image downloads. The SQL dialect is compatible with Athena/Presto.
 
 ## Scenario
 
@@ -9,77 +11,80 @@ An AI coding agent (`claude-code-agent`) was integrated into a company's CI/CD p
 ## Prerequisites
 
 - Docker & Docker Compose
-- [LocalStack Pro auth token](https://app.localstack.cloud/) (Athena requires Pro)
 
 ## Quick Start
 
 ```bash
-export LOCALSTACK_AUTH_TOKEN=<your-token>
 make up
 # Open http://localhost:3000
 ```
 
-First startup downloads the Athena BigData image (~1.5GB). The quiz app shows "Initializing..." until setup completes.
+### Without Docker
+
+```bash
+pip install flask duckdb
+DATA_DIR=./data python app/main.py
+# Open http://localhost:3000
+```
 
 ## Codespaces
 
-1. Set `LOCALSTACK_AUTH_TOKEN` as a Codespace secret
-2. Open this directory in a Codespace — services start automatically
+Open this directory in a Codespace — the quiz app starts automatically and the browser tab opens on port 3000.
 
-## Terminal Mode
-
-Use `awslocal` to query directly:
+## Terminal Mode (DuckDB CLI)
 
 ```bash
-pip install awscli-local
+# Install DuckDB CLI: https://duckdb.org/docs/installation/
+duckdb
 
-# Example
-awslocal athena start-query-execution \
-  --query-string "SELECT * FROM security_logs.cloudtrail_logs LIMIT 5" \
-  --query-execution-context Database=security_logs \
-  --result-configuration OutputLocation=s3://athena-results/ \
-  --endpoint-url http://localhost:4566
+# In DuckDB shell:
+CREATE VIEW cloudtrail_logs AS
+SELECT * FROM read_json_auto('data/cloudtrail-events.jsonl', format='newline_delimited');
 
-# Get results (replace QUERY_ID)
-awslocal athena get-query-results --query-execution-id <QUERY_ID>
+SELECT * FROM cloudtrail_logs LIMIT 5;
 ```
 
 ## Table Schema
 
-**Database**: `security_logs`
 **Table**: `cloudtrail_logs`
 
 | Column | Type | Description |
 |--------|------|-------------|
-| eventtime | STRING | ISO 8601 timestamp |
-| eventsource | STRING | AWS service (e.g. `iam.amazonaws.com`) |
-| eventname | STRING | API action (e.g. `AttachRolePolicy`) |
-| awsregion | STRING | AWS region |
-| sourceipaddress | STRING | Source IP |
-| useragent | STRING | Client identifier |
-| usertype | STRING | `IAMUser` / `AssumedRole` / `AWSService` |
-| userarn | STRING | IAM ARN of the caller |
-| username | STRING | IAM user or role name |
-| requestparameters | STRING | Request parameters (JSON string) |
-| responseelements | STRING | Response data (JSON string) |
-| eventid | STRING | Unique event ID |
-| readonly | STRING | `true` if read-only |
-| errorcode | STRING | Error code (empty if success) |
-| errormessage | STRING | Error message (empty if success) |
+| eventtime | VARCHAR | ISO 8601 timestamp |
+| eventsource | VARCHAR | AWS service (e.g. `iam.amazonaws.com`) |
+| eventname | VARCHAR | API action (e.g. `AttachRolePolicy`) |
+| awsregion | VARCHAR | AWS region |
+| sourceipaddress | VARCHAR | Source IP |
+| useragent | VARCHAR | Client identifier |
+| usertype | VARCHAR | `IAMUser` / `AssumedRole` / `AWSService` |
+| userarn | VARCHAR | IAM ARN of the caller |
+| username | VARCHAR | IAM user or role name |
+| requestparameters | VARCHAR | Request parameters (JSON string) |
+| responseelements | VARCHAR | Response data (JSON string) |
+| eventid | VARCHAR | Unique event ID |
+| readonly | VARCHAR | `true` if read-only |
+| errorcode | VARCHAR | Error code (empty if success) |
+| errormessage | VARCHAR | Error message (empty if success) |
 
 ## Architecture
 
 ```
-┌─────────────┐      ┌──────────────────────────────────────┐
-│  Browser     │      │  Docker Compose                      │
-│  :3000       │─────▶│  ┌──────────┐    ┌───────────────┐  │
-│              │      │  │ Quiz App │───▶│  LocalStack    │  │
-│  Terminal    │      │  │ (Flask)  │    │  (Athena+S3)   │  │
-│  awslocal    │─────▶│  └──────────┘    │  :4566         │  │
-│              │      │                  │  ┌───────────┐ │  │
-│              │      │                  │  │ S3 Bucket │ │  │
-│              │      │                  │  │ JSONL data│ │  │
-│              │      │                  │  └───────────┘ │  │
-│              │      │                  └───────────────┘  │
-└─────────────┘      └──────────────────────────────────────┘
+┌─────────────┐      ┌─────────────────────────────┐
+│  Browser     │      │  Docker                      │
+│  :3000       │─────▶│  ┌──────────┐  ┌──────────┐ │
+│              │      │  │ Flask    │──│ DuckDB   │ │
+│              │      │  │ Web UI   │  │ (in-proc)│ │
+│              │      │  └──────────┘  └──────────┘ │
+│              │      │       ↓                      │
+│              │      │  data/cloudtrail-events.jsonl│
+└─────────────┘      └─────────────────────────────┘
 ```
+
+## Note on Athena Compatibility
+
+DuckDB's SQL dialect is largely compatible with Athena (Presto/Trino). Key differences:
+
+- Use `LIKE` for pattern matching (same as Athena)
+- String functions (`SUBSTR`, `LENGTH`, etc.) work the same
+- Use `json_extract_string()` instead of Athena's `JSON_EXTRACT_SCALAR()`
+- No database prefix needed — query `cloudtrail_logs` directly instead of `security_logs.cloudtrail_logs`

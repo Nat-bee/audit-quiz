@@ -1,16 +1,13 @@
-import json
 import os
-import time
+import pathlib
 
-import boto3
+import duckdb
 from flask import Flask, jsonify, render_template, request
 
 app = Flask(__name__)
 
-ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL", "http://localhost:4566")
-REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
-DATABASE = "security_logs"
-OUTPUT_LOCATION = "s3://athena-results/"
+DATA_DIR = pathlib.Path(os.environ.get("DATA_DIR", "/data"))
+JSONL_PATH = DATA_DIR / "cloudtrail-events.jsonl"
 
 QUIZZES = [
     {
@@ -19,7 +16,7 @@ QUIZZES = [
         "title": "Total Event Count",
         "description": "How many events are recorded in the CloudTrail logs?",
         "description_ja": "CloudTrailログに記録されたイベントの総数を求めよ。",
-        "hint": "SELECT COUNT(*) FROM ...",
+        "hint": "SELECT COUNT(*) FROM cloudtrail_logs",
         "validate": {"type": "scalar", "value": 30},
     },
     {
@@ -46,7 +43,7 @@ QUIZZES = [
         "title": "Privilege Escalation",
         "description": "Identify events where AdministratorAccess policy was attached to any entity.",
         "description_ja": "AdministratorAccess ポリシーがアタッチされたイベントを特定せよ。",
-        "hint": "requestparameters contains 'AdministratorAccess'",
+        "hint": "requestparameters LIKE '%AdministratorAccess%'",
         "validate": {"type": "contains_value", "column": "requestparameters", "substring": "AdministratorAccess", "expected_count": 2},
     },
     {
@@ -64,7 +61,7 @@ QUIZZES = [
         "title": "Attack Timeline Reconstruction",
         "description": "Reconstruct the full attack timeline. Categorize each phase: Reconnaissance, Privilege Escalation, Data Access, Persistence, Anti-Forensics.",
         "description_ja": "攻撃の全体タイムラインを再構成せよ。各フェーズを分類すること：偵察→権限昇格→データアクセス→永続化→証拠隠滅。",
-        "hint": "List all after-hours events by claude-code-agent in chronological order. Think about what each action accomplishes.",
+        "hint": "23:00以降の claude-code-agent のイベントを時系列で並べ、各アクションが何を達成しているか考える。",
         "validate": {"type": "min_rows", "count": 10},
     },
     {
@@ -73,60 +70,31 @@ QUIZZES = [
         "title": "Failed Cover-Up",
         "description": "Did the attacker fail to destroy any evidence? Find events with errors.",
         "description_ja": "攻撃者の証拠隠滅の試みで失敗したものはあるか？エラーが発生したイベントを特定せよ。",
-        "hint": "errorcode is not empty",
+        "hint": "errorcode != '' (empty string means success)",
         "validate": {"type": "contains_value", "column": "errorcode", "substring": "AccessDenied", "expected_count": 1},
     },
 ]
 
 
-def get_athena_client():
-    return boto3.client(
-        "athena",
-        endpoint_url=ENDPOINT_URL,
-        region_name=REGION,
-        aws_access_key_id="test",
-        aws_secret_access_key="test",
-    )
-
-
-def get_s3_client():
-    return boto3.client(
-        "s3",
-        endpoint_url=ENDPOINT_URL,
-        region_name=REGION,
-        aws_access_key_id="test",
-        aws_secret_access_key="test",
-    )
+def get_connection():
+    conn = duckdb.connect(":memory:")
+    conn.execute(f"""
+        CREATE OR REPLACE VIEW cloudtrail_logs AS
+        SELECT * FROM read_json_auto('{JSONL_PATH}', format='newline_delimited')
+    """)
+    return conn
 
 
 def execute_query(sql):
-    client = get_athena_client()
-    response = client.start_query_execution(
-        QueryString=sql,
-        QueryExecutionContext={"Database": DATABASE},
-        ResultConfiguration={"OutputLocation": OUTPUT_LOCATION},
-    )
-    query_id = response["QueryExecutionId"]
-
-    for _ in range(60):
-        status = client.get_query_execution(QueryExecutionId=query_id)
-        state = status["QueryExecution"]["Status"]["State"]
-        if state == "SUCCEEDED":
-            break
-        if state in ("FAILED", "CANCELLED"):
-            reason = status["QueryExecution"]["Status"].get("StateChangeReason", "Unknown error")
-            return {"error": reason, "rows": [], "columns": []}
-        time.sleep(1)
-    else:
-        return {"error": "Query timed out", "rows": [], "columns": []}
-
-    results = client.get_query_results(QueryExecutionId=query_id)
-    columns = [col["Label"] for col in results["ResultSet"]["ResultSetMetadata"]["ColumnInfo"]]
-    rows = []
-    for row in results["ResultSet"]["Rows"][1:]:
-        rows.append([cell.get("VarCharValue", "") for cell in row["Data"]])
-
-    return {"columns": columns, "rows": rows, "error": None}
+    try:
+        conn = get_connection()
+        result = conn.execute(sql)
+        columns = [desc[0] for desc in result.description]
+        rows = [[str(v) if v is not None else "" for v in row] for row in result.fetchall()]
+        conn.close()
+        return {"columns": columns, "rows": rows, "error": None}
+    except duckdb.Error as e:
+        return {"error": str(e), "rows": [], "columns": []}
 
 
 def validate_result(quiz, result):
@@ -199,12 +167,15 @@ def index():
 
 @app.route("/api/health")
 def health():
+    if not JSONL_PATH.exists():
+        return jsonify({"status": "error", "message": "Data file not found"}), 503
     try:
-        s3 = get_s3_client()
-        s3.head_object(Bucket="athena-results", Key=".setup-complete")
-        return jsonify({"status": "ready"})
-    except Exception:
-        return jsonify({"status": "initializing"}), 503
+        conn = get_connection()
+        result = conn.execute("SELECT COUNT(*) FROM cloudtrail_logs").fetchone()
+        conn.close()
+        return jsonify({"status": "ready", "events": result[0]})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 503
 
 
 @app.route("/api/query", methods=["POST"])
@@ -213,10 +184,10 @@ def api_query():
     if not sql:
         return jsonify({"error": "Empty query"}), 400
 
-    forbidden = ["DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE", "TRUNCATE"]
+    forbidden = ["DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "TRUNCATE", "COPY", "EXPORT", "ATTACH"]
     upper_sql = sql.upper()
     for kw in forbidden:
-        if kw in upper_sql and kw != "CREATE":
+        if kw in upper_sql:
             return jsonify({"error": f"Mutation queries ({kw}) are not allowed"}), 400
 
     result = execute_query(sql)

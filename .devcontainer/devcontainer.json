@@ -2,22 +2,17 @@
   "name": "CloudTrail Athena Quiz",
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
-    "ghcr.io/devcontainers/features/aws-cli:1": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
-  "postCreateCommand": "pip install -r app/requirements.txt && pip install awscli-local",
+  "postCreateCommand": "pip install -r app/requirements.txt",
   "postStartCommand": "docker compose up -d --build",
-  "forwardPorts": [3000, 4566],
+  "forwardPorts": [3000],
   "portsAttributes": {
-    "3000": { "label": "Quiz App", "onAutoForward": "openBrowser" },
-    "4566": { "label": "LocalStack" }
+    "3000": { "label": "Quiz App", "onAutoForward": "openBrowser" }
   },
   "customizations": {
     "vscode": {
       "extensions": ["mtxr.sqltools"]
     }
-  },
-  "remoteEnv": {
-    "LOCALSTACK_AUTH_TOKEN": "${localEnv:LOCALSTACK_AUTH_TOKEN}"
   }
 }
