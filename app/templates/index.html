@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CloudTrail Investigation Quiz</title>
+  <title>CloudTrail 調査クイズ</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header>
-    <h1>CloudTrail Investigation Quiz</h1>
-    <p class="subtitle">AI Agent Incident — Athena SQL Exercise (Trino)</p>
+    <h1>CloudTrail 調査クイズ</h1>
+    <p class="subtitle">Stratus Red Team 攻撃シミュレーション — Athena SQL 演習 (Trino)</p>
     <div id="status-bar"></div>
   </header>
 
@@ -31,7 +31,7 @@
       </div>
       <p id="quiz-desc"></p>
       <details id="hint-box">
-        <summary>Hint</summary>
+        <summary>ヒント</summary>
         <code id="quiz-hint"></code>
       </details>
 
@@ -39,14 +39,14 @@
         <label for="sql-input">SQL Query</label>
         <textarea id="sql-input" spellcheck="false" placeholder="SELECT * FROM cloudtrail_logs LIMIT 10;"></textarea>
         <div id="editor-actions">
-          <button id="btn-run" onclick="runQuery()">Run Query</button>
-          <button id="btn-check" onclick="checkAnswer()">Check Answer</button>
+          <button id="btn-run" onclick="runQuery()">クエリ実行</button>
+          <button id="btn-check" onclick="checkAnswer()">回答チェック</button>
           <span id="feedback"></span>
         </div>
       </div>
 
       <div id="results-area">
-        <h3>Results <span id="row-count"></span></h3>
+        <h3>実行結果 <span id="row-count"></span></h3>
         <div id="table-wrap">
           <table id="results-table">
             <thead id="results-head"></thead>
@@ -59,13 +59,14 @@
 
   <footer>
     <div class="schema-ref">
-      <strong>Table:</strong> <code>cloudtrail_logs</code><br>
-      <strong>Columns:</strong>
+      <strong>テーブル:</strong> <code>cloudtrail_logs</code><br>
+      <strong>主要カラム:</strong>
       <code>eventtime</code>, <code>eventsource</code>, <code>eventname</code>,
       <code>awsregion</code>, <code>sourceipaddress</code>, <code>useragent</code>,
-      <code>usertype</code>, <code>userarn</code>, <code>username</code>,
-      <code>requestparameters</code>, <code>responseelements</code>,
-      <code>eventid</code>, <code>readonly</code>, <code>errorcode</code>, <code>errormessage</code>
+      <code>useridentity</code> <small>(JSON)</small>,
+      <code>requestparameters</code> <small>(JSON)</small>, <code>responseelements</code> <small>(JSON)</small>,
+      <code>eventid</code>, <code>readonly</code>, <code>errorcode</code>, <code>errormessage</code><br>
+      <small>JSON カラムには <code>JSON_EXTRACT_SCALAR(useridentity, '$.userName')</code> でアクセス</small>
     </div>
   </footer>
 
@@ -82,7 +83,7 @@
       document.getElementById('quiz-level').textContent = q.level;
       document.getElementById('quiz-level').className = 'level-badge level-' + q.level.toLowerCase();
       document.getElementById('quiz-title').textContent = 'Q' + q.id + ': ' + q.title;
-      document.getElementById('quiz-desc').textContent = q.description_ja;
+      document.getElementById('quiz-desc').textContent = q.description;
       document.getElementById('quiz-hint').textContent = q.hint;
 
       document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -101,7 +102,7 @@
       if (!sql) return;
 
       const fb = document.getElementById('feedback');
-      fb.textContent = 'Running...';
+      fb.textContent = '実行中...';
       fb.className = '';
 
       try {
@@ -119,7 +120,7 @@
         renderResults(data);
         fb.textContent = '';
       } catch (e) {
-        fb.textContent = 'Connection error: ' + e.message;
+        fb.textContent = '接続エラー: ' + e.message;
         fb.className = 'fb-error';
       }
     }
@@ -130,7 +131,7 @@
       if (!sql) return;
 
       const fb = document.getElementById('feedback');
-      fb.textContent = 'Checking...';
+      fb.textContent = 'チェック中...';
       fb.className = '';
 
       try {
@@ -151,7 +152,7 @@
           document.getElementById('status-' + currentQuiz.id).className = 'nav-status solved';
         }
       } catch (e) {
-        fb.textContent = 'Connection error: ' + e.message;
+        fb.textContent = '接続エラー: ' + e.message;
         fb.className = 'fb-error';
       }
     }
@@ -200,12 +201,12 @@
       try {
         const res = await fetch('/api/health');
         if (res.ok) {
-          bar.textContent = 'Ready';
+          bar.textContent = '準備完了';
           bar.className = 'status-ready';
           return;
         }
       } catch {}
-      bar.textContent = 'Initializing Trino... (30s)';
+      bar.textContent = 'Trino 初期化中... (約30秒)';
       bar.className = 'status-init';
       setTimeout(checkHealth, 5000);
     }
