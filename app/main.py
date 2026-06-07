@@ -185,6 +185,8 @@ def get_connection():
 
 
 def execute_query(sql):
+    if not _ready.is_set():
+        return {"error": "Trino 初期化中です。しばらくお待ちください。", "rows": [], "columns": []}
     try:
         conn = get_connection()
         cur = conn.cursor()
