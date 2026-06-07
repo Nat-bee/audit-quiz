@@ -1,5 +1,7 @@
 # CloudTrail Investigation Quiz
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Nat-bee/seccamp-2026-d2?devcontainer_path=.devcontainer/athena-quiz/devcontainer.json)
+
 Pre-learning exercise for Security Camp 2026 D2. Query CloudTrail logs with Athena-compatible SQL to investigate an AI agent compromise.
 
 Uses [Trino](https://trino.io/) (the engine behind Amazon Athena) + [MinIO](https://min.io/) (S3-compatible storage). SQL syntax is identical to Athena — no dialect differences, no API keys.
@@ -20,9 +22,13 @@ make up
 # Trino initialization takes ~30s on first run
 ```
 
-## Codespaces
+## Codespaces (One-Click)
 
-Open this directory in a Codespace — services start automatically and the browser tab opens on port 3000.
+Click the badge above or use the link below — services start automatically and the quiz opens in your browser.
+
+```
+https://codespaces.new/Nat-bee/seccamp-2026-d2?devcontainer_path=.devcontainer/athena-quiz/devcontainer.json
+```
 
 ## Terminal Mode (Trino CLI)
 
