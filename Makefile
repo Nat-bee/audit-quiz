@@ -1,16 +1,17 @@
+COMPOSE := $(shell command -v docker > /dev/null 2>&1 && echo "docker compose" || echo "podman-compose")
+
 .PHONY: up down logs clean
 
 up:
-	docker compose up -d --build
+	$(COMPOSE) up -d --build
 	@echo "Quiz app: http://localhost:3000"
 	@echo "Trino will be ready in ~30s"
 
 down:
-	docker compose down
+	$(COMPOSE) down
 
 logs:
-	docker compose logs -f
+	$(COMPOSE) logs -f
 
 clean:
-	docker compose down -v
-	docker image rm athena-quiz-quiz 2>/dev/null || true
+	$(COMPOSE) down -v
