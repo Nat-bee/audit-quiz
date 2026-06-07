@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>CloudTrail Investigation Quiz</h1>
-    <p class="subtitle">AI Agent Incident — SQL Query Exercise</p>
+    <p class="subtitle">AI Agent Incident — Athena SQL Exercise (Trino)</p>
     <div id="status-bar"></div>
   </header>
 
@@ -205,7 +205,7 @@
           return;
         }
       } catch {}
-      bar.textContent = 'Initializing...';
+      bar.textContent = 'Initializing Trino... (30s)';
       bar.className = 'status-init';
       setTimeout(checkHealth, 5000);
     }

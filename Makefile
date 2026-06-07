@@ -1,17 +1,15 @@
-.PHONY: up down logs run clean
+.PHONY: up down logs clean
 
 up:
 	docker compose up -d --build
 	@echo "Quiz app: http://localhost:3000"
+	@echo "Trino will be ready in ~30s"
 
 down:
 	docker compose down
 
 logs:
 	docker compose logs -f
-
-run:
-	DATA_DIR=./data python app/main.py
 
 clean:
 	docker compose down -v

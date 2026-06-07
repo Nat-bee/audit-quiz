@@ -1,8 +1,8 @@
 # CloudTrail Investigation Quiz
 
-Pre-learning exercise for Security Camp 2026 D2. Query CloudTrail logs with SQL to investigate an AI agent compromise.
+Pre-learning exercise for Security Camp 2026 D2. Query CloudTrail logs with Athena-compatible SQL to investigate an AI agent compromise.
 
-Uses [DuckDB](https://duckdb.org/) to query JSONL data directly — no cloud services, no API keys, no large image downloads. The SQL dialect is compatible with Athena/Presto.
+Uses [Trino](https://trino.io/) (the engine behind Amazon Athena) + [MinIO](https://min.io/) (S3-compatible storage). SQL syntax is identical to Athena — no dialect differences, no API keys.
 
 ## Scenario
 
@@ -17,35 +17,27 @@ An AI coding agent (`claude-code-agent`) was integrated into a company's CI/CD p
 ```bash
 make up
 # Open http://localhost:3000
-```
-
-### Without Docker
-
-```bash
-pip install flask duckdb
-DATA_DIR=./data python app/main.py
-# Open http://localhost:3000
+# Trino initialization takes ~30s on first run
 ```
 
 ## Codespaces
 
-Open this directory in a Codespace — the quiz app starts automatically and the browser tab opens on port 3000.
+Open this directory in a Codespace — services start automatically and the browser tab opens on port 3000.
 
-## Terminal Mode (DuckDB CLI)
+## Terminal Mode (Trino CLI)
 
 ```bash
-# Install DuckDB CLI: https://duckdb.org/docs/installation/
-duckdb
+# Connect to Trino
+docker compose exec trino trino
 
-# In DuckDB shell:
-CREATE VIEW cloudtrail_logs AS
-SELECT * FROM read_json_auto('data/cloudtrail-events.jsonl', format='newline_delimited');
-
+# In Trino shell:
+USE hive.security_logs;
 SELECT * FROM cloudtrail_logs LIMIT 5;
 ```
 
 ## Table Schema
 
+**Database**: `security_logs`
 **Table**: `cloudtrail_logs`
 
 | Column | Type | Description |
@@ -69,22 +61,26 @@ SELECT * FROM cloudtrail_logs LIMIT 5;
 ## Architecture
 
 ```
-┌─────────────┐      ┌─────────────────────────────┐
-│  Browser     │      │  Docker                      │
-│  :3000       │─────▶│  ┌──────────┐  ┌──────────┐ │
-│              │      │  │ Flask    │──│ DuckDB   │ │
-│              │      │  │ Web UI   │  │ (in-proc)│ │
-│              │      │  └──────────┘  └──────────┘ │
-│              │      │       ↓                      │
-│              │      │  data/cloudtrail-events.jsonl│
-└─────────────┘      └─────────────────────────────┘
+┌─────────────┐      ┌──────────────────────────────────────┐
+│  Browser     │      │  Docker Compose                      │
+│  :3000       │─────▶│  ┌──────────┐    ┌───────────────┐  │
+│              │      │  │ Quiz App │───▶│  Trino        │  │
+│  Terminal    │      │  │ (Flask)  │    │  (Athena SQL) │  │
+│  trino CLI   │─────▶│  └──────────┘    │       │        │  │
+│              │      │                  │       ▼        │  │
+│              │      │                  │  ┌──────────┐  │  │
+│              │      │                  │  │  MinIO   │  │  │
+│              │      │                  │  │  (S3)    │  │  │
+│              │      │                  │  │  JSONL   │  │  │
+│              │      │                  │  └──────────┘  │  │
+│              │      │                  └───────────────┘  │
+└─────────────┘      └──────────────────────────────────────┘
 ```
 
-## Note on Athena Compatibility
+## Why Trino, not LocalStack or DuckDB?
 
-DuckDB's SQL dialect is largely compatible with Athena (Presto/Trino). Key differences:
-
-- Use `LIKE` for pattern matching (same as Athena)
-- String functions (`SUBSTR`, `LENGTH`, etc.) work the same
-- Use `json_extract_string()` instead of Athena's `JSON_EXTRACT_SCALAR()`
-- No database prefix needed — query `cloudtrail_logs` directly instead of `security_logs.cloudtrail_logs`
+| Engine | Athena SQL compatibility | Dependencies | Startup |
+|--------|------------------------|--------------|---------|
+| LocalStack Pro Athena | Identical | Pro license + 1.5GB image | Minutes |
+| DuckDB | Similar but differs (`json_extract_string` vs `JSON_EXTRACT_SCALAR`) | None | Instant |
+| **Trino + MinIO** | **Identical** (Athena = managed Trino) | **Docker only** | **~30s** |

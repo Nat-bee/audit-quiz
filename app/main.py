@@ -1,13 +1,18 @@
 import os
-import pathlib
+import threading
+import time
 
-import duckdb
+import trino
 from flask import Flask, jsonify, render_template, request
 
 app = Flask(__name__)
 
-DATA_DIR = pathlib.Path(os.environ.get("DATA_DIR", "/data"))
-JSONL_PATH = DATA_DIR / "cloudtrail-events.jsonl"
+TRINO_HOST = os.environ.get("TRINO_HOST", "localhost")
+TRINO_PORT = int(os.environ.get("TRINO_PORT", "8080"))
+CATALOG = "hive"
+SCHEMA = "security_logs"
+
+_ready = threading.Event()
 
 QUIZZES = [
     {
@@ -77,23 +82,79 @@ QUIZZES = [
 
 
 def get_connection():
-    conn = duckdb.connect(":memory:")
-    conn.execute(f"""
-        CREATE OR REPLACE VIEW cloudtrail_logs AS
-        SELECT * FROM read_json_auto('{JSONL_PATH}', format='newline_delimited')
-    """)
-    return conn
+    return trino.dbapi.connect(
+        host=TRINO_HOST,
+        port=TRINO_PORT,
+        user="quiz",
+        catalog=CATALOG,
+        schema=SCHEMA,
+    )
+
+
+def init_trino():
+    for attempt in range(60):
+        try:
+            conn = trino.dbapi.connect(
+                host=TRINO_HOST,
+                port=TRINO_PORT,
+                user="quiz",
+                catalog=CATALOG,
+            )
+            cur = conn.cursor()
+
+            cur.execute(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA}")
+            cur.fetchone()
+
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.cloudtrail_logs (
+                    eventtime      VARCHAR,
+                    eventsource    VARCHAR,
+                    eventname      VARCHAR,
+                    awsregion      VARCHAR,
+                    sourceipaddress VARCHAR,
+                    useragent      VARCHAR,
+                    usertype       VARCHAR,
+                    userarn        VARCHAR,
+                    username       VARCHAR,
+                    requestparameters VARCHAR,
+                    responseelements VARCHAR,
+                    eventid        VARCHAR,
+                    readonly       VARCHAR,
+                    errorcode      VARCHAR,
+                    errormessage   VARCHAR
+                )
+                WITH (
+                    external_location = 's3a://cloudtrail-logs/events/',
+                    format = 'JSON'
+                )
+            """)
+            cur.fetchone()
+
+            cur.execute(f"SELECT COUNT(*) FROM {CATALOG}.{SCHEMA}.cloudtrail_logs")
+            count = cur.fetchone()[0]
+            cur.close()
+            conn.close()
+            print(f"Trino ready: {count} events in cloudtrail_logs")
+            _ready.set()
+            return
+        except Exception as e:
+            print(f"Init attempt {attempt + 1}/60: {e}")
+            time.sleep(3)
+
+    print("ERROR: Failed to initialize Trino")
 
 
 def execute_query(sql):
     try:
         conn = get_connection()
-        result = conn.execute(sql)
-        columns = [desc[0] for desc in result.description]
-        rows = [[str(v) if v is not None else "" for v in row] for row in result.fetchall()]
+        cur = conn.cursor()
+        cur.execute(sql)
+        columns = [desc[0] for desc in cur.description]
+        rows = [[str(v) if v is not None else "" for v in row] for row in cur.fetchall()]
+        cur.close()
         conn.close()
         return {"columns": columns, "rows": rows, "error": None}
-    except duckdb.Error as e:
+    except Exception as e:
         return {"error": str(e), "rows": [], "columns": []}
 
 
@@ -167,15 +228,9 @@ def index():
 
 @app.route("/api/health")
 def health():
-    if not JSONL_PATH.exists():
-        return jsonify({"status": "error", "message": "Data file not found"}), 503
-    try:
-        conn = get_connection()
-        result = conn.execute("SELECT COUNT(*) FROM cloudtrail_logs").fetchone()
-        conn.close()
-        return jsonify({"status": "ready", "events": result[0]})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 503
+    if _ready.is_set():
+        return jsonify({"status": "ready"})
+    return jsonify({"status": "initializing"}), 503
 
 
 @app.route("/api/query", methods=["POST"])
@@ -184,7 +239,7 @@ def api_query():
     if not sql:
         return jsonify({"error": "Empty query"}), 400
 
-    forbidden = ["DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "TRUNCATE", "COPY", "EXPORT", "ATTACH"]
+    forbidden = ["DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "TRUNCATE"]
     upper_sql = sql.upper()
     for kw in forbidden:
         if kw in upper_sql:
@@ -212,4 +267,5 @@ def api_validate():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3000, debug=True)
+    threading.Thread(target=init_trino, daemon=True).start()
+    app.run(host="0.0.0.0", port=3000, debug=False)
