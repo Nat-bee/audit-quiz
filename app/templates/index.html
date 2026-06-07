@@ -9,8 +9,6 @@
 <body>
   <header>
     <h1>CloudTrail 調査クイズ</h1>
-    <p class="subtitle">Stratus Red Team 攻撃シミュレーション — Athena SQL 演習 (Trino)</p>
-    <div id="status-bar"></div>
   </header>
 
   <main>
@@ -36,7 +34,7 @@
       </details>
 
       <div id="editor-area">
-        <label for="sql-input">SQL Query</label>
+        <label for="sql-input">SQL Query <kbd>Ctrl+Enter</kbd></label>
         <textarea id="sql-input" spellcheck="false" placeholder="SELECT * FROM cloudtrail_logs LIMIT 10;"></textarea>
         <div id="editor-actions">
           <button id="btn-run" onclick="runQuery()">クエリ実行</button>
@@ -55,20 +53,52 @@
         </div>
       </div>
     </section>
-  </main>
 
-  <footer>
-    <div class="schema-ref">
-      <strong>テーブル:</strong> <code>cloudtrail_logs</code><br>
-      <strong>主要カラム:</strong>
-      <code>eventtime</code>, <code>eventsource</code>, <code>eventname</code>,
-      <code>awsregion</code>, <code>sourceipaddress</code>, <code>useragent</code>,
-      <code>useridentity</code> <small>(JSON)</small>,
-      <code>requestparameters</code> <small>(JSON)</small>, <code>responseelements</code> <small>(JSON)</small>,
-      <code>eventid</code>, <code>readonly</code>, <code>errorcode</code>, <code>errormessage</code><br>
-      <small>JSON カラムには <code>JSON_EXTRACT_SCALAR(useridentity, '$.userName')</code> でアクセス</small>
-    </div>
-  </footer>
+    <aside id="reference-panel">
+      <div class="ref-section">
+        <h4>テーブル</h4>
+        <code class="ref-table-name">cloudtrail_logs</code>
+      </div>
+
+      <div class="ref-section">
+        <h4>主要カラム</h4>
+        <ul class="ref-columns">
+          <li><code>eventtime</code></li>
+          <li><code>eventsource</code></li>
+          <li><code>eventname</code></li>
+          <li><code>awsregion</code></li>
+          <li><code>sourceipaddress</code></li>
+          <li><code>useragent</code></li>
+          <li><code>useridentity</code> <small>JSON</small></li>
+          <li><code>requestparameters</code> <small>JSON</small></li>
+          <li><code>responseelements</code> <small>JSON</small></li>
+          <li><code>errorcode</code></li>
+          <li><code>errormessage</code></li>
+          <li><code>eventid</code></li>
+          <li><code>readonly</code></li>
+        </ul>
+      </div>
+
+      <div class="ref-section">
+        <h4>JSON アクセス</h4>
+        <code class="ref-example">JSON_EXTRACT_SCALAR(<br>  useridentity,<br>  '$.userName'<br>)</code>
+      </div>
+
+      <div class="ref-section">
+        <h4>公式ドキュメント</h4>
+        <ul class="ref-links">
+          <li><a href="https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-examples.html" target="_blank">CloudTrail ログ形式</a></li>
+          <li><a href="https://docs.aws.amazon.com/athena/latest/ug/cloudtrail-logs.html" target="_blank">Athena で CloudTrail を検索</a></li>
+          <li><a href="https://docs.aws.amazon.com/athena/latest/ug/presto-functions.html" target="_blank">Athena SQL 関数リファレンス</a></li>
+          <li><a href="https://trino.io/docs/current/functions/json.html" target="_blank">Trino JSON 関数</a></li>
+          <li><a href="https://trino.io/docs/current/functions/string.html" target="_blank">Trino 文字列関数</a></li>
+          <li><a href="https://trino.io/docs/current/functions/aggregate.html" target="_blank">Trino 集約関数</a></li>
+          <li><a href="https://stratus-red-team.cloud/" target="_blank">Stratus Red Team</a></li>
+          <li><a href="https://github.com/invictus-ir/aws_dataset" target="_blank">データセット (invictus-ir)</a></li>
+        </ul>
+      </div>
+    </aside>
+  </main>
 
   <script>
     const quizzes = {{ quizzes | tojson }};
@@ -178,7 +208,7 @@
         row.forEach((cell, i) => {
           const td = document.createElement('td');
           td.textContent = cell;
-          if (data.columns[i] === 'requestparameters' || data.columns[i] === 'responseelements') {
+          if (data.columns[i] === 'requestparameters' || data.columns[i] === 'responseelements' || data.columns[i] === 'useridentity') {
             td.classList.add('json-cell');
           }
           tr.appendChild(td);
@@ -196,22 +226,6 @@
       }
     });
 
-    async function checkHealth() {
-      const bar = document.getElementById('status-bar');
-      try {
-        const res = await fetch('/api/health');
-        if (res.ok) {
-          bar.textContent = '準備完了';
-          bar.className = 'status-ready';
-          return;
-        }
-      } catch {}
-      bar.textContent = 'Trino 初期化中... (約30秒)';
-      bar.className = 'status-init';
-      setTimeout(checkHealth, 5000);
-    }
-
-    checkHealth();
     selectQuiz(1);
   </script>
 </body>

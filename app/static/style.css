@@ -16,17 +16,6 @@ header {
 }
 
 header h1 { font-size: 1.4rem; color: #58a6ff; }
-.subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 0.25rem; }
-
-#status-bar {
-  margin-top: 0.5rem;
-  font-size: 0.8rem;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  display: inline-block;
-}
-.status-ready { background: #0d4429; color: #3fb950; }
-.status-init { background: #341a04; color: #d29922; }
 
 main {
   display: flex;
@@ -67,6 +56,7 @@ main {
   flex: 1;
   padding: 1.5rem 2rem;
   overflow-y: auto;
+  min-width: 0;
 }
 
 #quiz-header {
@@ -106,6 +96,15 @@ main {
 
 #editor-area { margin-bottom: 1.5rem; }
 #editor-area label { font-size: 0.8rem; color: #8b949e; display: block; margin-bottom: 0.25rem; }
+#editor-area label kbd {
+  font-size: 0.7rem;
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 3px;
+  padding: 0.1rem 0.3rem;
+  color: #8b949e;
+  margin-left: 0.5rem;
+}
 
 #sql-input {
   width: 100%;
@@ -193,23 +192,90 @@ main {
   color: #d2a8ff;
 }
 
-footer {
+#reference-panel {
+  width: 260px;
+  min-width: 260px;
   background: #161b22;
-  border-top: 1px solid #30363d;
-  padding: 0.75rem 2rem;
+  border-left: 1px solid #30363d;
+  padding: 1rem;
+  overflow-y: auto;
+  font-size: 0.8rem;
 }
 
-.schema-ref {
+.ref-section {
+  margin-bottom: 1.25rem;
+}
+
+.ref-section h4 {
   font-size: 0.75rem;
   color: #8b949e;
-  line-height: 1.6;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid #21262d;
+  padding-bottom: 0.25rem;
 }
-.schema-ref code {
+
+.ref-table-name {
+  color: #79c0ff;
+  background: #0d1117;
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.85rem;
+}
+
+.ref-columns {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.ref-columns li code {
   color: #79c0ff;
   background: #0d1117;
   padding: 0.1rem 0.3rem;
   border-radius: 3px;
+  font-size: 0.7rem;
+}
+
+.ref-columns li small {
+  color: #6e7681;
+  font-size: 0.65rem;
+}
+
+.ref-example {
+  display: block;
+  color: #d2a8ff;
+  background: #0d1117;
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px;
   font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.ref-links {
+  list-style: none;
+}
+
+.ref-links li {
+  margin-bottom: 0.35rem;
+}
+
+.ref-links a {
+  color: #58a6ff;
+  text-decoration: none;
+  font-size: 0.78rem;
+}
+
+.ref-links a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 1024px) {
+  #reference-panel {
+    display: none;
+  }
 }
 
 @media (max-width: 768px) {
