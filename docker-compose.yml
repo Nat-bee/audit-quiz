@@ -5,56 +5,31 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
     volumes:
       - minio-data:/data
-
-  minio-init:
-    image: minio/mc
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: /bin/sh
-    command: >
-      -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb local/cloudtrail-logs --ignore-existing &&
-      mc cp /data/cloudtrail-events.jsonl local/cloudtrail-logs/events/cloudtrail-events.jsonl &&
-      echo 'MinIO init done'
-      "
-    volumes:
-      - ./data:/data:ro
 
   trino:
     image: trinodb/trino
     depends_on:
-      minio-init:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD-SHELL", "trino --execute 'SELECT 1' 2>/dev/null || exit 1"]
-      interval: 10s
-      timeout: 10s
-      retries: 30
-      start_period: 20s
+      - minio
     volumes:
       - ./trino/catalog:/etc/trino/catalog
-      - trino-metastore:/data/metastore
 
   quiz:
     build: ./app
     ports:
       - "3000:3000"
+    depends_on:
+      - minio
+      - trino
     environment:
       - TRINO_HOST=trino
       - TRINO_PORT=8080
-    depends_on:
-      trino:
-        condition: service_healthy
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+    volumes:
+      - ./data:/data:ro
 
 volumes:
   minio-data:
-  trino-metastore:

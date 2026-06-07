@@ -2,13 +2,19 @@ import os
 import threading
 import time
 
+import boto3
 import trino
+from botocore.exceptions import ClientError
 from flask import Flask, jsonify, render_template, request
 
 app = Flask(__name__)
 
 TRINO_HOST = os.environ.get("TRINO_HOST", "localhost")
 TRINO_PORT = int(os.environ.get("TRINO_PORT", "8080"))
+MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "http://localhost:9000")
+MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "minioadmin")
+DATA_PATH = os.environ.get("DATA_PATH", "/data/cloudtrail-events.jsonl")
 CATALOG = "hive"
 SCHEMA = "security_logs"
 
@@ -81,24 +87,37 @@ QUIZZES = [
 ]
 
 
-def get_connection():
-    return trino.dbapi.connect(
-        host=TRINO_HOST,
-        port=TRINO_PORT,
-        user="quiz",
-        catalog=CATALOG,
-        schema=SCHEMA,
+def init_minio():
+    """Upload CloudTrail data to MinIO."""
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=MINIO_ENDPOINT,
+        aws_access_key_id=MINIO_ACCESS_KEY,
+        aws_secret_access_key=MINIO_SECRET_KEY,
     )
+    for attempt in range(30):
+        try:
+            for bucket in ("cloudtrail-logs", "trino-metastore"):
+                try:
+                    s3.create_bucket(Bucket=bucket)
+                except ClientError as e:
+                    if e.response["Error"]["Code"] != "BucketAlreadyOwnedByYou":
+                        raise
+            s3.upload_file(DATA_PATH, "cloudtrail-logs", "events/cloudtrail-events.jsonl")
+            print("MinIO ready: data uploaded to s3://cloudtrail-logs/events/")
+            return True
+        except Exception as e:
+            print(f"MinIO init attempt {attempt + 1}/30: {e}")
+            time.sleep(2)
+    return False
 
 
 def init_trino():
+    """Create Athena-compatible schema and table in Trino."""
     for attempt in range(60):
         try:
             conn = trino.dbapi.connect(
-                host=TRINO_HOST,
-                port=TRINO_PORT,
-                user="quiz",
-                catalog=CATALOG,
+                host=TRINO_HOST, port=TRINO_PORT, user="quiz", catalog=CATALOG
             )
             cur = conn.cursor()
 
@@ -107,21 +126,21 @@ def init_trino():
 
             cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.cloudtrail_logs (
-                    eventtime      VARCHAR,
-                    eventsource    VARCHAR,
-                    eventname      VARCHAR,
-                    awsregion      VARCHAR,
+                    eventtime       VARCHAR,
+                    eventsource     VARCHAR,
+                    eventname       VARCHAR,
+                    awsregion       VARCHAR,
                     sourceipaddress VARCHAR,
-                    useragent      VARCHAR,
-                    usertype       VARCHAR,
-                    userarn        VARCHAR,
-                    username       VARCHAR,
+                    useragent       VARCHAR,
+                    usertype        VARCHAR,
+                    userarn         VARCHAR,
+                    username        VARCHAR,
                     requestparameters VARCHAR,
-                    responseelements VARCHAR,
-                    eventid        VARCHAR,
-                    readonly       VARCHAR,
-                    errorcode      VARCHAR,
-                    errormessage   VARCHAR
+                    responseelements  VARCHAR,
+                    eventid         VARCHAR,
+                    readonly        VARCHAR,
+                    errorcode       VARCHAR,
+                    errormessage    VARCHAR
                 )
                 WITH (
                     external_location = 's3a://cloudtrail-logs/events/',
@@ -136,12 +155,23 @@ def init_trino():
             conn.close()
             print(f"Trino ready: {count} events in cloudtrail_logs")
             _ready.set()
-            return
+            return True
         except Exception as e:
-            print(f"Init attempt {attempt + 1}/60: {e}")
+            print(f"Trino init attempt {attempt + 1}/60: {e}")
             time.sleep(3)
+    return False
 
-    print("ERROR: Failed to initialize Trino")
+
+def init_all():
+    if init_minio():
+        init_trino()
+
+
+def get_connection():
+    return trino.dbapi.connect(
+        host=TRINO_HOST, port=TRINO_PORT, user="quiz",
+        catalog=CATALOG, schema=SCHEMA,
+    )
 
 
 def execute_query(sql):
@@ -267,5 +297,5 @@ def api_validate():
 
 
 if __name__ == "__main__":
-    threading.Thread(target=init_trino, daemon=True).start()
+    threading.Thread(target=init_all, daemon=True).start()
     app.run(host="0.0.0.0", port=3000, debug=False)
