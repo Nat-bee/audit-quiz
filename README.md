@@ -1,6 +1,6 @@
 # CloudTrail 調査クイズ
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Nat-bee/seccamp-2026-d2?devcontainer_path=.devcontainer/athena-quiz/devcontainer.json)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Nat-bee/athena-quiz)
 
 Athena SQL で CloudTrail ログを調査する練習環境。
 

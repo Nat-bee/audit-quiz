@@ -1,0 +1,21 @@
+{
+  "name": "CloudTrail Athena Quiz",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "postCreateCommand": "docker compose pull && docker compose build",
+  "postStartCommand": "docker compose up -d",
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Quiz App",
+      "onAutoForward": "openBrowser"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["mtxr.sqltools"]
+    }
+  }
+}
