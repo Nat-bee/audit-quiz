@@ -282,6 +282,156 @@ def index():
     return render_template("index.html", quizzes=QUIZZES)
 
 
+@app.route("/explore")
+def explore():
+    return render_template("explore.html")
+
+
+@app.route("/api/explore", methods=["POST"])
+def api_explore():
+    body = request.json or {}
+    query = body.get("query", "").strip()
+    time_from = body.get("from", "")
+    time_to = body.get("to", "")
+    size = min(int(body.get("size", 500)), 5000)
+    sort_field = body.get("sort_field", "eventtime")
+    sort_order = body.get("sort_order", "DESC")
+
+    if sort_order not in ("ASC", "DESC"):
+        sort_order = "DESC"
+    allowed_sort = {
+        "eventtime", "eventsource", "eventname", "awsregion",
+        "sourceipaddress", "errorcode",
+    }
+    if sort_field not in allowed_sort:
+        sort_field = "eventtime"
+
+    conditions = []
+    if time_from:
+        conditions.append(f"eventtime >= '{time_from}'")
+    if time_to:
+        conditions.append(f"eventtime <= '{time_to}'")
+    if query:
+        terms = [t.strip() for t in query.split(" AND ") if t.strip()]
+        for term in terms:
+            if ":" in term:
+                field, value = term.split(":", 1)
+                field = field.strip().lower()
+                value = value.strip().strip('"').strip("'")
+                safe_cols = {
+                    "eventsource", "eventname", "awsregion", "sourceipaddress",
+                    "useragent", "errorcode", "errormessage", "useridentity",
+                    "requestparameters", "responseelements", "eventtype",
+                    "readonly", "recipientaccountid", "eventid",
+                }
+                if field in safe_cols:
+                    escaped = value.replace("'", "''")
+                    if "*" in value:
+                        like_val = escaped.replace("*", "%")
+                        conditions.append(f"{field} LIKE '{like_val}'")
+                    else:
+                        conditions.append(f"{field} = '{escaped}'")
+            elif term.startswith("NOT "):
+                rest = term[4:].strip()
+                escaped = rest.replace("'", "''")
+                conditions.append(
+                    f"CONCAT(COALESCE(eventsource,''), ' ', COALESCE(eventname,''), ' ', "
+                    f"COALESCE(errorcode,''), ' ', COALESCE(sourceipaddress,''), ' ', "
+                    f"COALESCE(useragent,'')) NOT LIKE '%{escaped}%'"
+                )
+            else:
+                escaped = term.replace("'", "''")
+                conditions.append(
+                    f"CONCAT(COALESCE(eventsource,''), ' ', COALESCE(eventname,''), ' ', "
+                    f"COALESCE(errorcode,''), ' ', COALESCE(sourceipaddress,''), ' ', "
+                    f"COALESCE(useragent,'')) LIKE '%{escaped}%'"
+                )
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    count_sql = f"SELECT COUNT(*) FROM cloudtrail_logs WHERE {where}"
+    count_result = execute_query(count_sql)
+    total = int(count_result["rows"][0][0]) if count_result["rows"] else 0
+
+    data_sql = (
+        f"SELECT * FROM cloudtrail_logs WHERE {where} "
+        f"ORDER BY {sort_field} {sort_order} LIMIT {size}"
+    )
+    result = execute_query(data_sql)
+
+    return jsonify({
+        "total": total,
+        "columns": result.get("columns", []),
+        "rows": result.get("rows", []),
+        "error": result.get("error"),
+    })
+
+
+@app.route("/api/histogram", methods=["POST"])
+def api_histogram():
+    body = request.json or {}
+    query_str = body.get("query", "").strip()
+    time_from = body.get("from", "")
+    time_to = body.get("to", "")
+
+    conditions = []
+    if time_from:
+        conditions.append(f"eventtime >= '{time_from}'")
+    if time_to:
+        conditions.append(f"eventtime <= '{time_to}'")
+    if query_str:
+        escaped = query_str.replace("'", "''")
+        conditions.append(
+            f"CONCAT(COALESCE(eventsource,''), ' ', COALESCE(eventname,''), ' ', "
+            f"COALESCE(errorcode,''), ' ', COALESCE(sourceipaddress,'')) "
+            f"LIKE '%{escaped}%'"
+        )
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    sql = (
+        f"SELECT SUBSTR(eventtime, 1, 13) AS bucket, COUNT(*) AS cnt "
+        f"FROM cloudtrail_logs WHERE {where} "
+        f"GROUP BY SUBSTR(eventtime, 1, 13) ORDER BY bucket"
+    )
+    result = execute_query(sql)
+    buckets = [{"key": r[0], "count": int(r[1])} for r in result.get("rows", [])]
+    return jsonify({"buckets": buckets, "error": result.get("error")})
+
+
+@app.route("/api/field_stats", methods=["POST"])
+def api_field_stats():
+    body = request.json or {}
+    field = body.get("field", "eventsource")
+    time_from = body.get("from", "")
+    time_to = body.get("to", "")
+
+    safe_cols = {
+        "eventsource", "eventname", "awsregion", "sourceipaddress",
+        "useragent", "errorcode", "errormessage", "eventtype",
+        "readonly", "recipientaccountid",
+    }
+    if field not in safe_cols:
+        return jsonify({"error": "Invalid field"}), 400
+
+    conditions = []
+    if time_from:
+        conditions.append(f"eventtime >= '{time_from}'")
+    if time_to:
+        conditions.append(f"eventtime <= '{time_to}'")
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    sql = (
+        f"SELECT {field}, COUNT(*) AS cnt FROM cloudtrail_logs "
+        f"WHERE {where} AND {field} IS NOT NULL AND {field} != '' "
+        f"GROUP BY {field} ORDER BY cnt DESC LIMIT 20"
+    )
+    result = execute_query(sql)
+    values = [{"value": r[0], "count": int(r[1])} for r in result.get("rows", [])]
+    return jsonify({"field": field, "values": values, "error": result.get("error")})
+
+
 @app.route("/api/health")
 def health():
     if _ready.is_set():

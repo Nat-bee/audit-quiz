@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Log Explorer - CloudTrail</title>
+  <link rel="stylesheet" href="/static/explore.css">
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <h1>Log Explorer</h1>
+      <span class="header-index">cloudtrail_logs</span>
+    </div>
+    <div class="header-right">
+      <a href="/" class="header-link">Quiz</a>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="search-bar">
+      <input type="text" id="search-input" placeholder="Search... (e.g. eventname:CreateUser AND eventsource:iam*)" spellcheck="false">
+      <button id="btn-search" onclick="doSearch()">Search</button>
+    </div>
+    <div class="time-controls">
+      <label>From</label>
+      <input type="text" id="time-from" placeholder="2024-01-01T00:00:00Z">
+      <label>To</label>
+      <input type="text" id="time-to" placeholder="2024-12-31T23:59:59Z">
+      <button id="btn-refresh" onclick="doSearch()">Refresh</button>
+    </div>
+  </div>
+
+  <div class="main-layout">
+    <aside class="field-panel" id="field-panel">
+      <div class="field-panel-header">
+        <h3>Fields</h3>
+      </div>
+      <div class="field-list" id="field-list"></div>
+      <div class="field-stats" id="field-stats"></div>
+    </aside>
+
+    <div class="content-area">
+      <div class="hits-bar" id="hits-bar"></div>
+
+      <div class="histogram-container">
+        <canvas id="histogram" height="80"></canvas>
+      </div>
+
+      <div class="doc-controls">
+        <span id="doc-count"></span>
+        <div class="sort-controls">
+          <select id="sort-field">
+            <option value="eventtime">eventtime</option>
+            <option value="eventsource">eventsource</option>
+            <option value="eventname">eventname</option>
+          </select>
+          <button id="btn-sort-toggle" onclick="toggleSort()">DESC</button>
+        </div>
+      </div>
+
+      <div class="doc-table" id="doc-table"></div>
+
+      <div class="load-more-bar">
+        <button id="btn-load-more" onclick="loadMore()" style="display:none">Load more</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const FIELDS = [
+      'eventsource', 'eventname', 'awsregion', 'sourceipaddress',
+      'useragent', 'errorcode', 'errormessage', 'eventtype',
+      'readonly', 'recipientaccountid',
+    ];
+    const ALL_COLUMNS = [
+      'eventversion','useridentity','eventtime','eventsource','eventname',
+      'awsregion','sourceipaddress','useragent','errorcode','errormessage',
+      'requestparameters','responseelements','additionaleventdata','requestid',
+      'eventid','readonly','eventtype','managementevent','recipientaccountid',
+      'eventcategory','resources','tlsdetails','sharedeventid','vpcendpointid','apiversion',
+    ];
+
+    let currentData = { columns: [], rows: [] };
+    let currentSize = 500;
+    let sortOrder = 'DESC';
+    let selectedField = 'eventsource';
+    let expandedRows = new Set();
+
+    function buildFieldList() {
+      const el = document.getElementById('field-list');
+      el.innerHTML = FIELDS.map(f =>
+        `<button class="field-item ${f === selectedField ? 'active' : ''}" onclick="selectField('${f}')">${f}</button>`
+      ).join('');
+    }
+
+    function selectField(f) {
+      selectedField = f;
+      buildFieldList();
+      loadFieldStats();
+    }
+
+    async function loadFieldStats() {
+      const el = document.getElementById('field-stats');
+      el.innerHTML = '<div class="loading">Loading...</div>';
+      try {
+        const res = await fetch('/api/field_stats', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            field: selectedField,
+            from: document.getElementById('time-from').value,
+            to: document.getElementById('time-to').value,
+          }),
+        });
+        const data = await res.json();
+        if (data.error) { el.innerHTML = `<div class="error">${data.error}</div>`; return; }
+
+        const maxCount = data.values.length ? data.values[0].count : 1;
+        el.innerHTML = `
+          <div class="stats-header">
+            <span class="stats-field">${selectedField}</span>
+            <span class="stats-count">${data.values.length} values</span>
+          </div>
+          <div class="stats-values">
+            ${data.values.map(v => `
+              <div class="stats-row" onclick="addFilter('${selectedField}', '${v.value.replace(/'/g, "\\'")}')">
+                <div class="stats-bar-bg">
+                  <div class="stats-bar-fill" style="width:${(v.count/maxCount*100).toFixed(1)}%"></div>
+                </div>
+                <span class="stats-label" title="${v.value}">${v.value}</span>
+                <span class="stats-num">${v.count.toLocaleString()}</span>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } catch (e) {
+        el.innerHTML = `<div class="error">${e.message}</div>`;
+      }
+    }
+
+    function addFilter(field, value) {
+      const input = document.getElementById('search-input');
+      const existing = input.value.trim();
+      const token = `${field}:${value.includes(' ') ? '"'+value+'"' : value}`;
+      input.value = existing ? `${existing} AND ${token}` : token;
+      doSearch();
+    }
+
+    function toggleSort() {
+      sortOrder = sortOrder === 'DESC' ? 'ASC' : 'DESC';
+      document.getElementById('btn-sort-toggle').textContent = sortOrder;
+      doSearch();
+    }
+
+    async function doSearch() {
+      currentSize = 500;
+      expandedRows.clear();
+      await Promise.all([fetchDocs(), fetchHistogram()]);
+      loadFieldStats();
+    }
+
+    async function fetchDocs() {
+      const hitsBar = document.getElementById('hits-bar');
+      hitsBar.textContent = 'Searching...';
+
+      try {
+        const res = await fetch('/api/explore', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            query: document.getElementById('search-input').value,
+            from: document.getElementById('time-from').value,
+            to: document.getElementById('time-to').value,
+            size: currentSize,
+            sort_field: document.getElementById('sort-field').value,
+            sort_order: sortOrder,
+          }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          hitsBar.innerHTML = `<span class="error">${data.error}</span>`;
+          return;
+        }
+        currentData = data;
+        hitsBar.textContent = `${data.total.toLocaleString()} hits`;
+        document.getElementById('doc-count').textContent = `Showing ${data.rows.length} of ${data.total.toLocaleString()}`;
+        document.getElementById('btn-load-more').style.display = data.rows.length < data.total ? '' : 'none';
+        renderDocs(data);
+      } catch (e) {
+        hitsBar.innerHTML = `<span class="error">${e.message}</span>`;
+      }
+    }
+
+    async function fetchHistogram() {
+      const canvas = document.getElementById('histogram');
+      const ctx = canvas.getContext('2d');
+      canvas.width = canvas.parentElement.clientWidth;
+
+      try {
+        const res = await fetch('/api/histogram', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            query: document.getElementById('search-input').value,
+            from: document.getElementById('time-from').value,
+            to: document.getElementById('time-to').value,
+          }),
+        });
+        const data = await res.json();
+        if (data.error || !data.buckets.length) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          return;
+        }
+        drawHistogram(ctx, canvas, data.buckets);
+      } catch (_) {}
+    }
+
+    function drawHistogram(ctx, canvas, buckets) {
+      const w = canvas.width;
+      const h = canvas.height;
+      const pad = { top: 10, bottom: 20, left: 0, right: 0 };
+      const plotW = w - pad.left - pad.right;
+      const plotH = h - pad.top - pad.bottom;
+      const maxVal = Math.max(...buckets.map(b => b.count));
+      const barW = Math.max(2, Math.floor(plotW / buckets.length) - 1);
+
+      ctx.clearRect(0, 0, w, h);
+
+      buckets.forEach((b, i) => {
+        const barH = maxVal ? (b.count / maxVal) * plotH : 0;
+        const x = pad.left + (i / buckets.length) * plotW;
+        const y = pad.top + plotH - barH;
+        ctx.fillStyle = '#1f6feb';
+        ctx.fillRect(x, y, barW, barH);
+      });
+
+      if (buckets.length > 1) {
+        ctx.fillStyle = '#6e7681';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'start';
+        ctx.fillText(buckets[0].key, pad.left, h - 2);
+        ctx.textAlign = 'end';
+        ctx.fillText(buckets[buckets.length - 1].key, w - pad.right, h - 2);
+      }
+    }
+
+    function renderDocs(data) {
+      const container = document.getElementById('doc-table');
+      if (!data.rows.length) {
+        container.innerHTML = '<div class="no-results">No results found</div>';
+        return;
+      }
+
+      const keyFields = ['eventtime', 'eventsource', 'eventname', 'sourceipaddress', 'errorcode'];
+      const keyIdx = keyFields.map(f => data.columns.indexOf(f));
+
+      let html = '';
+      data.rows.forEach((row, ri) => {
+        const isExpanded = expandedRows.has(ri);
+        const summary = keyIdx.map((ci, fi) =>
+          ci >= 0 && row[ci] ? `<span class="doc-field"><span class="doc-key">${keyFields[fi]}</span><span class="doc-val ${keyFields[fi] === 'errorcode' && row[ci] ? 'val-error' : ''}">${row[ci]}</span></span>` : ''
+        ).join('');
+
+        html += `<div class="doc-row ${isExpanded ? 'expanded' : ''}">
+          <div class="doc-summary" onclick="toggleRow(${ri})">
+            <span class="doc-toggle">${isExpanded ? '&#9660;' : '&#9654;'}</span>
+            ${summary}
+          </div>`;
+
+        if (isExpanded) {
+          html += '<div class="doc-detail"><table class="doc-detail-table">';
+          data.columns.forEach((col, ci) => {
+            let val = row[ci] || '';
+            let displayVal = val;
+            if (val && (val.startsWith('{') || val.startsWith('['))) {
+              try { displayVal = JSON.stringify(JSON.parse(val), null, 2); } catch(_) {}
+            }
+            html += `<tr>
+              <td class="detail-key">${col}</td>
+              <td class="detail-val">${escapeHtml(displayVal)}</td>
+            </tr>`;
+          });
+          html += '</table></div>';
+        }
+        html += '</div>';
+      });
+      container.innerHTML = html;
+    }
+
+    function toggleRow(idx) {
+      if (expandedRows.has(idx)) expandedRows.delete(idx);
+      else expandedRows.add(idx);
+      renderDocs(currentData);
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    async function loadMore() {
+      currentSize += 500;
+      await fetchDocs();
+    }
+
+    document.getElementById('search-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); doSearch(); }
+    });
+
+    window.addEventListener('resize', () => {
+      if (currentData.rows.length) fetchHistogram();
+    });
+
+    buildFieldList();
+    doSearch();
+  </script>
+</body>
+</html>
