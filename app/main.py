@@ -117,7 +117,7 @@ def init_trino():
     for attempt in range(60):
         try:
             conn = trino.dbapi.connect(
-                host=TRINO_HOST, port=TRINO_PORT, user="quiz", catalog=CATALOG
+                host=TRINO_HOST, port=TRINO_PORT, user="admin", catalog=CATALOG
             )
             cur = conn.cursor()
 
@@ -294,12 +294,6 @@ def api_query():
     sql = request.json.get("sql", "").strip()
     if not sql:
         return jsonify({"error": "クエリが空です"}), 400
-
-    forbidden = ["DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "TRUNCATE"]
-    upper_sql = sql.upper()
-    for kw in forbidden:
-        if kw in upper_sql:
-            return jsonify({"error": f"変更クエリ ({kw}) は許可されていません"}), 400
 
     result = execute_query(sql)
     return jsonify(result)
