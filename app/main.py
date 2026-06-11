@@ -368,10 +368,6 @@ def api_explore():
 
 
 HISTOGRAM_INTERVALS = {
-    "5s":  {"expr": "CONCAT(SUBSTR(eventtime, 1, 17), "
-            "LPAD(CAST(CAST(SUBSTR(eventtime, 18, 2) AS INTEGER) / 5 * 5 AS VARCHAR), 2, '0'))"},
-    "15s": {"expr": "CONCAT(SUBSTR(eventtime, 1, 17), "
-            "LPAD(CAST(CAST(SUBSTR(eventtime, 18, 2) AS INTEGER) / 15 * 15 AS VARCHAR), 2, '0'))"},
     "30s": {"expr": "CONCAT(SUBSTR(eventtime, 1, 17), "
             "LPAD(CAST(CAST(SUBSTR(eventtime, 18, 2) AS INTEGER) / 30 * 30 AS VARCHAR), 2, '0'))"},
     "1m":  {"expr": "SUBSTR(eventtime, 1, 16)"},
@@ -393,19 +389,15 @@ def _auto_interval(time_from, time_to):
         span = (t1 - t0).total_seconds()
     except (ValueError, TypeError):
         return "1h"
-    if span <= 120:
-        return "5s"
     if span <= 300:
-        return "15s"
-    if span <= 600:
         return "30s"
-    if span <= 3600:
+    if span <= 1800:
         return "1m"
-    if span <= 3600 * 6:
+    if span <= 3600 * 3:
         return "5m"
-    if span <= 3600 * 24:
+    if span <= 3600 * 12:
         return "15m"
-    if span <= 3600 * 24 * 7:
+    if span <= 3600 * 24 * 3:
         return "1h"
     return "1d"
 
