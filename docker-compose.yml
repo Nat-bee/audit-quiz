@@ -31,6 +31,7 @@ services:
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
       - HOST_ENV=${HOST_ENV:-}
+      - CONTAINER_RUNTIME=${CONTAINER_RUNTIME:-}
       - QUIZ_USER=${QUIZ_USER:-}
       - CODESPACES=${CODESPACES:-}
       - GITHUB_USER=${GITHUB_USER:-}

@@ -40,7 +40,8 @@ JSON カラムは `JSON_EXTRACT_SCALAR(useridentity, '$.userName')` でアクセ
 
 アプリ改善のため、以下の利用状況を PostHog に送信する。
 
-- 起動環境の種別 (mac / windows / linux / wsl / codespaces)
+- 起動環境の種別 (mac / windows / wsl / codespaces / Linux distro 名)
+- コンテナランタイム (docker / colima / orbstack / rancher / podman)
 - 匿名化された利用者ID (ユーザー名の SHA-256 ハッシュ。**生のユーザー名は送信しない**)
 - クイズの解答結果 (問題ID と正否のみ。**SQL 本文は送信しない**)
 

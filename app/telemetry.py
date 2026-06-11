@@ -43,6 +43,16 @@ def _host_env():
     return "unknown"
 
 
+def _container_runtime():
+    runtime = os.environ.get("CONTAINER_RUNTIME", "").strip()
+    if runtime:
+        return runtime
+    # Codespaces starts compose without the Makefile and ships docker.
+    if os.environ.get("CODESPACES", "").lower() == "true":
+        return "docker"
+    return ""
+
+
 def _identity():
     for var, source in (("GITHUB_USER", "github"), ("QUIZ_USER", "local")):
         value = os.environ.get(var, "").strip()
@@ -56,17 +66,21 @@ def capture(event, properties=None):
     if _disabled():
         return
     distinct_id, username_source = _identity()
+    props = {
+        "session_id": SESSION_ID,
+        "host_env": _host_env(),
+        "username_source": username_source,
+        "$geoip_disable": True,
+        **(properties or {}),
+    }
+    runtime = _container_runtime()
+    if runtime:
+        props["container_runtime"] = runtime
     payload = {
         "api_key": POSTHOG_API_KEY,
         "event": event,
         "distinct_id": distinct_id,
-        "properties": {
-            "session_id": SESSION_ID,
-            "host_env": _host_env(),
-            "username_source": username_source,
-            "$geoip_disable": True,
-            **(properties or {}),
-        },
+        "properties": props,
     }
     threading.Thread(target=_send, args=(payload,), daemon=True).start()
 
