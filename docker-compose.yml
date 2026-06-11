@@ -30,6 +30,12 @@ services:
       - MINIO_ENDPOINT=http://minio:9000
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
+      - HOST_ENV=${HOST_ENV:-}
+      - QUIZ_USER=${QUIZ_USER:-}
+      - CODESPACES=${CODESPACES:-}
+      - GITHUB_USER=${GITHUB_USER:-}
+      - POSTHOG_API_KEY=${POSTHOG_API_KEY:-}
+      - TELEMETRY_DISABLED=${TELEMETRY_DISABLED:-}
     volumes:
       - ./data:/data:ro
 

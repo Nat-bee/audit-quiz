@@ -7,6 +7,8 @@ import trino
 from botocore.exceptions import ClientError
 from flask import Flask, jsonify, render_template, request
 
+import telemetry
+
 app = Flask(__name__)
 
 TRINO_HOST = os.environ.get("TRINO_HOST", "localhost")
@@ -497,12 +499,15 @@ def api_validate():
 
     result = execute_query(sql)
     if result.get("error"):
+        telemetry.quiz_attempt(quiz, False, sql)
         return jsonify({"correct": False, "message": result["error"], "result": result})
 
     correct, message = validate_result(quiz, result)
+    telemetry.quiz_attempt(quiz, correct, sql)
     return jsonify({"correct": correct, "message": message, "result": result})
 
 
 if __name__ == "__main__":
     threading.Thread(target=init_all, daemon=True).start()
+    telemetry.app_start()
     app.run(host="0.0.0.0", port=3000, debug=False)

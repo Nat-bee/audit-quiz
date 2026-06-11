@@ -35,3 +35,17 @@ JSON カラムは `JSON_EXTRACT_SCALAR(useridentity, '$.userName')` でアクセ
 ## アーキテクチャ
 
 ![Architecture](assets/architecture.png)
+
+## テレメトリ
+
+アプリ改善のため、以下の利用状況を PostHog に送信する。
+
+- 起動環境の種別 (mac / windows / linux / wsl / codespaces)
+- 匿名化された利用者ID (ユーザー名の SHA-256 ハッシュ。**生のユーザー名は送信しない**)
+- クイズの解答結果 (問題ID と正否のみ。**SQL 本文は送信しない**)
+
+ネットワーク不通でもクイズの動作には影響しない。無効化するには:
+
+```bash
+TELEMETRY_DISABLED=1 make up
+```
