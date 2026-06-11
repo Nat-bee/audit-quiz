@@ -368,15 +368,13 @@ def api_explore():
 
 
 HISTOGRAM_INTERVALS = {
+    "5s":  {"expr": "CONCAT(SUBSTR(eventtime, 1, 17), "
+            "LPAD(CAST(CAST(SUBSTR(eventtime, 18, 2) AS INTEGER) / 5 * 5 AS VARCHAR), 2, '0'))"},
+    "15s": {"expr": "CONCAT(SUBSTR(eventtime, 1, 17), "
+            "LPAD(CAST(CAST(SUBSTR(eventtime, 18, 2) AS INTEGER) / 15 * 15 AS VARCHAR), 2, '0'))"},
     "30s": {"expr": "CONCAT(SUBSTR(eventtime, 1, 17), "
             "LPAD(CAST(CAST(SUBSTR(eventtime, 18, 2) AS INTEGER) / 30 * 30 AS VARCHAR), 2, '0'))"},
     "1m":  {"expr": "SUBSTR(eventtime, 1, 16)"},
-    "5m":  {"expr": "CONCAT(SUBSTR(eventtime, 1, 14), "
-            "LPAD(CAST(CAST(SUBSTR(eventtime, 15, 2) AS INTEGER) / 5 * 5 AS VARCHAR), 2, '0'))"},
-    "15m": {"expr": "CONCAT(SUBSTR(eventtime, 1, 14), "
-            "LPAD(CAST(CAST(SUBSTR(eventtime, 15, 2) AS INTEGER) / 15 * 15 AS VARCHAR), 2, '0'))"},
-    "1h":  {"expr": "SUBSTR(eventtime, 1, 13)"},
-    "1d":  {"expr": "SUBSTR(eventtime, 1, 10)"},
 }
 
 
@@ -388,18 +386,14 @@ def _auto_interval(time_from, time_to):
         t1 = datetime.strptime(time_to, fmt)
         span = (t1 - t0).total_seconds()
     except (ValueError, TypeError):
-        return "1h"
-    if span <= 300:
-        return "30s"
+        return "5s"
+    if span <= 600:
+        return "5s"
     if span <= 1800:
-        return "1m"
-    if span <= 3600 * 3:
-        return "5m"
-    if span <= 3600 * 12:
-        return "15m"
-    if span <= 3600 * 24 * 3:
-        return "1h"
-    return "1d"
+        return "15s"
+    if span <= 3600:
+        return "30s"
+    return "1m"
 
 
 @app.route("/api/histogram", methods=["POST"])
