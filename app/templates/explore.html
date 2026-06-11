@@ -44,6 +44,19 @@
       <div class="hits-bar" id="hits-bar"></div>
 
       <div class="histogram-container">
+        <div class="histogram-header">
+          <span class="histogram-label" id="histogram-label"></span>
+          <div class="interval-controls">
+            <select id="interval-select" onchange="doSearch()">
+              <option value="auto">auto</option>
+              <option value="1m">1 min</option>
+              <option value="5m">5 min</option>
+              <option value="15m">15 min</option>
+              <option value="1h">1 hour</option>
+              <option value="1d">1 day</option>
+            </select>
+          </div>
+        </div>
         <canvas id="histogram" height="80"></canvas>
       </div>
 
@@ -196,6 +209,7 @@
       const canvas = document.getElementById('histogram');
       const ctx = canvas.getContext('2d');
       canvas.width = canvas.parentElement.clientWidth;
+      const label = document.getElementById('histogram-label');
 
       try {
         const res = await fetch('/api/histogram', {
@@ -205,13 +219,17 @@
             query: document.getElementById('search-input').value,
             from: document.getElementById('time-from').value,
             to: document.getElementById('time-to').value,
+            interval: document.getElementById('interval-select').value,
           }),
         });
         const data = await res.json();
         if (data.error || !data.buckets.length) {
           ctx.clearRect(0, 0, canvas.width, canvas.height);
+          label.textContent = '';
           return;
         }
+        const intervalNames = {'1m':'1 min','5m':'5 min','15m':'15 min','1h':'1 hour','1d':'1 day'};
+        label.textContent = `${data.buckets.length} buckets @ ${intervalNames[data.interval] || data.interval}`;
         drawHistogram(ctx, canvas, data.buckets);
       } catch (_) {}
     }

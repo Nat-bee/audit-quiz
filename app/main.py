@@ -367,12 +367,51 @@ def api_explore():
     })
 
 
+HISTOGRAM_INTERVALS = {
+    "1m":  {"len": 16, "expr": "SUBSTR(eventtime, 1, 16)"},
+    "5m":  {"len": 16, "expr": "CONCAT(SUBSTR(eventtime, 1, 14), "
+            "LPAD(CAST(CAST(SUBSTR(eventtime, 15, 2) AS INTEGER) / 5 * 5 AS VARCHAR), 2, '0'))"},
+    "15m": {"len": 16, "expr": "CONCAT(SUBSTR(eventtime, 1, 14), "
+            "LPAD(CAST(CAST(SUBSTR(eventtime, 15, 2) AS INTEGER) / 15 * 15 AS VARCHAR), 2, '0'))"},
+    "1h":  {"len": 13, "expr": "SUBSTR(eventtime, 1, 13)"},
+    "1d":  {"len": 10, "expr": "SUBSTR(eventtime, 1, 10)"},
+}
+
+
+def _auto_interval(time_from, time_to):
+    from datetime import datetime
+    try:
+        fmt = "%Y-%m-%dT%H:%M:%SZ"
+        t0 = datetime.strptime(time_from, fmt)
+        t1 = datetime.strptime(time_to, fmt)
+        span = (t1 - t0).total_seconds()
+    except (ValueError, TypeError):
+        return "1h"
+    if span <= 3600:
+        return "1m"
+    if span <= 3600 * 6:
+        return "5m"
+    if span <= 3600 * 24:
+        return "15m"
+    if span <= 3600 * 24 * 7:
+        return "1h"
+    return "1d"
+
+
 @app.route("/api/histogram", methods=["POST"])
 def api_histogram():
     body = request.json or {}
     query_str = body.get("query", "").strip()
     time_from = body.get("from", "")
     time_to = body.get("to", "")
+    interval = body.get("interval", "auto")
+
+    if interval == "auto":
+        interval = _auto_interval(time_from, time_to)
+    if interval not in HISTOGRAM_INTERVALS:
+        interval = "1h"
+
+    bucket_expr = HISTOGRAM_INTERVALS[interval]["expr"]
 
     conditions = []
     if time_from:
@@ -390,13 +429,13 @@ def api_histogram():
     where = " AND ".join(conditions) if conditions else "1=1"
 
     sql = (
-        f"SELECT SUBSTR(eventtime, 1, 13) AS bucket, COUNT(*) AS cnt "
+        f"SELECT {bucket_expr} AS bucket, COUNT(*) AS cnt "
         f"FROM cloudtrail_logs WHERE {where} "
-        f"GROUP BY SUBSTR(eventtime, 1, 13) ORDER BY bucket"
+        f"GROUP BY {bucket_expr} ORDER BY bucket"
     )
     result = execute_query(sql)
     buckets = [{"key": r[0], "count": int(r[1])} for r in result.get("rows", [])]
-    return jsonify({"buckets": buckets, "error": result.get("error")})
+    return jsonify({"buckets": buckets, "interval": interval, "error": result.get("error")})
 
 
 @app.route("/api/field_stats", methods=["POST"])
