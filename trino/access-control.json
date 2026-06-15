@@ -1,0 +1,12 @@
+{
+  "catalogs": [
+    {
+      "user": "admin",
+      "allow": "all"
+    },
+    {
+      "user": "quiz",
+      "allow": "read-only"
+    }
+  ]
+}

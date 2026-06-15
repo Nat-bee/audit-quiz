@@ -1,0 +1,44 @@
+services:
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+
+  trino:
+    image: trinodb/trino
+    depends_on:
+      - minio
+    volumes:
+      - ./trino/catalog:/etc/trino/catalog
+      - ./trino/access-control.properties:/etc/trino/access-control.properties
+      - ./trino/access-control.json:/etc/trino/access-control.json
+
+  quiz:
+    build: ./app
+    ports:
+      - "3000:3000"
+    depends_on:
+      - minio
+      - trino
+    environment:
+      - TRINO_HOST=trino
+      - TRINO_PORT=8080
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - HOST_ENV=${HOST_ENV:-}
+      - CONTAINER_RUNTIME=${CONTAINER_RUNTIME:-}
+      - QUIZ_USER=${QUIZ_USER:-}
+      - CODESPACES=${CODESPACES:-}
+      - GITHUB_USER=${GITHUB_USER:-}
+      - POSTHOG_API_KEY=${POSTHOG_API_KEY:-}
+      - TELEMETRY_DISABLED=${TELEMETRY_DISABLED:-}
+    volumes:
+      - ./data:/data:ro
+
+volumes:
+  minio-data:

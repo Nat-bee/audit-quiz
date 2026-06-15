@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudTrail 調査クイズ</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>CloudTrail 調査クイズ</h1>
+    <a href="/explore" style="color:#58a6ff;text-decoration:none;font-size:0.85rem;padding:0.3rem 0.8rem;border:1px solid #30363d;border-radius:6px;">Log Explorer</a>
+  </header>
+
+  <main>
+    <nav id="quiz-nav">
+      {% for q in quizzes %}
+      <button class="nav-btn" data-id="{{ q.id }}" onclick="selectQuiz({{ q.id }})">
+        <span class="nav-level">{{ q.level }}</span>
+        <span class="nav-title">Q{{ q.id }}</span>
+        <span class="nav-status" id="status-{{ q.id }}"></span>
+      </button>
+      {% endfor %}
+    </nav>
+
+    <section id="quiz-area">
+      <div id="quiz-header">
+        <span id="quiz-level" class="level-badge"></span>
+        <h2 id="quiz-title"></h2>
+      </div>
+      <p id="quiz-desc"></p>
+      <details id="hint-box">
+        <summary>ヒント</summary>
+        <code id="quiz-hint"></code>
+      </details>
+
+      <div id="editor-area">
+        <label for="sql-input">SQL Query <kbd>Ctrl+Enter</kbd></label>
+        <textarea id="sql-input" spellcheck="false" placeholder="SELECT * FROM cloudtrail_logs LIMIT 10;"></textarea>
+        <div id="editor-actions">
+          <button id="btn-run" onclick="runQuery()">クエリ実行</button>
+          <button id="btn-check" onclick="checkAnswer()">回答チェック</button>
+          <span id="feedback"></span>
+        </div>
+      </div>
+
+      <div id="results-area">
+        <h3>実行結果 <span id="row-count"></span></h3>
+        <div id="table-wrap">
+          <table id="results-table">
+            <thead id="results-head"></thead>
+            <tbody id="results-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <aside id="reference-panel">
+      <div class="ref-section">
+        <h4>テーブル</h4>
+        <code class="ref-table-name">cloudtrail_logs</code>
+      </div>
+
+      <div class="ref-section">
+        <h4>主要カラム</h4>
+        <ul class="ref-columns">
+          <li><code>eventtime</code></li>
+          <li><code>eventsource</code></li>
+          <li><code>eventname</code></li>
+          <li><code>awsregion</code></li>
+          <li><code>sourceipaddress</code></li>
+          <li><code>useragent</code></li>
+          <li><code>useridentity</code> <small>JSON</small></li>
+          <li><code>requestparameters</code> <small>JSON</small></li>
+          <li><code>responseelements</code> <small>JSON</small></li>
+          <li><code>errorcode</code></li>
+          <li><code>errormessage</code></li>
+          <li><code>eventid</code></li>
+          <li><code>readonly</code></li>
+        </ul>
+      </div>
+
+      <div class="ref-section">
+        <h4>JSON アクセス</h4>
+        <code class="ref-example">JSON_EXTRACT_SCALAR(<br>  useridentity,<br>  '$.userName'<br>)</code>
+      </div>
+
+      <div class="ref-section">
+        <h4>公式ドキュメント</h4>
+        <ul class="ref-links">
+          <li><a href="https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-examples.html" target="_blank">CloudTrail ログ形式</a></li>
+          <li><a href="https://docs.aws.amazon.com/athena/latest/ug/cloudtrail-logs.html" target="_blank">Athena で CloudTrail を検索</a></li>
+          <li><a href="https://docs.aws.amazon.com/athena/latest/ug/presto-functions.html" target="_blank">Athena SQL 関数リファレンス</a></li>
+          <li><a href="https://trino.io/docs/current/functions/json.html" target="_blank">Trino JSON 関数</a></li>
+          <li><a href="https://trino.io/docs/current/functions/string.html" target="_blank">Trino 文字列関数</a></li>
+          <li><a href="https://trino.io/docs/current/functions/aggregate.html" target="_blank">Trino 集約関数</a></li>
+          <li><a href="https://stratus-red-team.cloud/" target="_blank">Stratus Red Team</a></li>
+          <li><a href="https://github.com/invictus-ir/aws_dataset" target="_blank">データセット (invictus-ir)</a></li>
+        </ul>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const quizzes = {{ quizzes | tojson }};
+    let currentQuiz = null;
+    const solved = new Set();
+
+    function selectQuiz(id) {
+      const q = quizzes.find(x => x.id === id);
+      if (!q) return;
+      currentQuiz = q;
+
+      document.getElementById('quiz-level').textContent = q.level;
+      document.getElementById('quiz-level').className = 'level-badge level-' + q.level.toLowerCase();
+      document.getElementById('quiz-title').textContent = 'Q' + q.id + ': ' + q.title;
+      document.getElementById('quiz-desc').textContent = q.description;
+      document.getElementById('quiz-hint').textContent = q.hint;
+
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      document.querySelector(`.nav-btn[data-id="${id}"]`).classList.add('active');
+
+      document.getElementById('feedback').textContent = '';
+      document.getElementById('feedback').className = '';
+      document.getElementById('results-head').innerHTML = '';
+      document.getElementById('results-body').innerHTML = '';
+      document.getElementById('row-count').textContent = '';
+      document.getElementById('hint-box').removeAttribute('open');
+    }
+
+    async function runQuery() {
+      const sql = document.getElementById('sql-input').value.trim();
+      if (!sql) return;
+
+      const fb = document.getElementById('feedback');
+      fb.textContent = '実行中...';
+      fb.className = '';
+
+      try {
+        const res = await fetch('/api/query', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({sql})
+        });
+        const data = await res.json();
+        if (data.error) {
+          fb.textContent = data.error;
+          fb.className = 'fb-error';
+          return;
+        }
+        renderResults(data);
+        fb.textContent = '';
+      } catch (e) {
+        fb.textContent = '接続エラー: ' + e.message;
+        fb.className = 'fb-error';
+      }
+    }
+
+    async function checkAnswer() {
+      if (!currentQuiz) return;
+      const sql = document.getElementById('sql-input').value.trim();
+      if (!sql) return;
+
+      const fb = document.getElementById('feedback');
+      fb.textContent = 'チェック中...';
+      fb.className = '';
+
+      try {
+        const res = await fetch('/api/validate', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({quiz_id: currentQuiz.id, sql})
+        });
+        const data = await res.json();
+        if (data.result) renderResults(data.result);
+
+        fb.textContent = data.message;
+        fb.className = data.correct ? 'fb-correct' : 'fb-wrong';
+
+        if (data.correct) {
+          solved.add(currentQuiz.id);
+          document.getElementById('status-' + currentQuiz.id).textContent = '✓';
+          document.getElementById('status-' + currentQuiz.id).className = 'nav-status solved';
+        }
+      } catch (e) {
+        fb.textContent = '接続エラー: ' + e.message;
+        fb.className = 'fb-error';
+      }
+    }
+
+    function renderResults(data) {
+      const head = document.getElementById('results-head');
+      const body = document.getElementById('results-body');
+      head.innerHTML = '';
+      body.innerHTML = '';
+
+      if (!data.columns || !data.columns.length) return;
+
+      const tr = document.createElement('tr');
+      data.columns.forEach(c => {
+        const th = document.createElement('th');
+        th.textContent = c;
+        tr.appendChild(th);
+      });
+      head.appendChild(tr);
+
+      data.rows.forEach(row => {
+        const tr = document.createElement('tr');
+        row.forEach((cell, i) => {
+          const td = document.createElement('td');
+          td.textContent = cell;
+          if (data.columns[i] === 'requestparameters' || data.columns[i] === 'responseelements' || data.columns[i] === 'useridentity') {
+            td.classList.add('json-cell');
+          }
+          tr.appendChild(td);
+        });
+        body.appendChild(tr);
+      });
+
+      document.getElementById('row-count').textContent = `(${data.rows.length} rows)`;
+    }
+
+    document.getElementById('sql-input').addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        runQuery();
+      }
+    });
+
+    selectQuiz(1);
+  </script>
+</body>
+</html>
