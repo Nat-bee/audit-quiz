@@ -10,8 +10,19 @@ from flask import Flask, jsonify, render_template, request
 
 import telemetry
 
-_TABLE_RE = re.compile(r"\bcloudtrail_logs\b", re.IGNORECASE)
 _ISO_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+_COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
+_STRING_RE = re.compile(r"'(?:[^']|'')*'")
+_UNION_RE = re.compile(r"\bUNION\b", re.IGNORECASE)
+_TABLE_RE = re.compile(r"\bFROM\s+cloudtrail_logs\b", re.IGNORECASE)
+
+
+def _check_sql_references_table(sql):
+    stripped = _COMMENT_RE.sub(" ", sql)
+    stripped = _STRING_RE.sub(" ", stripped)
+    if _UNION_RE.search(stripped):
+        return False
+    return bool(_TABLE_RE.search(stripped))
 
 app = Flask(__name__)
 
@@ -245,8 +256,8 @@ def validate_result(quiz, result, sql=""):
     if result.get("error"):
         return False, "クエリでエラーが発生しました。"
 
-    if not _TABLE_RE.search(sql):
-        return False, "cloudtrail_logs テーブルを参照するクエリを書いてください。"
+    if not _check_sql_references_table(sql):
+        return False, "cloudtrail_logs テーブルを直接参照する単一のSELECTクエリを書いてください（UNIONは使用できません）。"
 
     v = quiz["validate"]
     rows = result["rows"]
@@ -317,7 +328,10 @@ def validate_result(quiz, result, sql=""):
 
 @app.route("/")
 def index():
-    return render_template("index.html", quizzes=QUIZZES)
+    safe_quizzes = [
+        {k: v for k, v in q.items() if k != "validate"} for q in QUIZZES
+    ]
+    return render_template("index.html", quizzes=safe_quizzes)
 
 
 @app.route("/explore")
