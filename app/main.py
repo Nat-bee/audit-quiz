@@ -1,4 +1,5 @@
 import os
+import re
 import threading
 import time
 
@@ -8,6 +9,9 @@ from botocore.exceptions import ClientError
 from flask import Flask, jsonify, render_template, request
 
 import telemetry
+
+_TABLE_RE = re.compile(r"\bcloudtrail_logs\b", re.IGNORECASE)
+_ISO_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 app = Flask(__name__)
 
@@ -49,7 +53,7 @@ QUIZZES = [
             "type": "contains_value",
             "column": "_col0",
             "substring": "bert-jan",
-            "expected_count": None,
+            "expected_count": 3,
         },
     },
     {
@@ -66,7 +70,10 @@ QUIZZES = [
         "title": "権限昇格の検出",
         "description": "IAMポリシーの変更（PutRolePolicy, AttachRolePolicy）イベントを全て取得し、時系列で並べよ。実行者と変更内容を確認せよ。",
         "hint": "WHERE eventname IN ('PutRolePolicy', 'AttachRolePolicy') ORDER BY eventtime",
-        "validate": {"type": "row_range", "min": 11, "max": 15},
+        "validate": {
+            "type": "row_range", "min": 11, "max": 15,
+            "must_contain": {"column": "eventname", "values": ["PutRolePolicy", "AttachRolePolicy"]},
+        },
     },
     {
         "id": 6,
@@ -86,7 +93,10 @@ QUIZZES = [
         "title": "永続化アクセスの確立",
         "description": "攻撃者がバックドアとして作成したIAMユーザー・認証情報を特定せよ（CreateUser, CreateAccessKey, CreateLoginProfile）。",
         "hint": "WHERE eventname IN ('CreateUser', 'CreateAccessKey', 'CreateLoginProfile') ORDER BY eventtime",
-        "validate": {"type": "row_range", "min": 8, "max": 12},
+        "validate": {
+            "type": "row_range", "min": 8, "max": 12,
+            "must_contain": {"column": "eventname", "values": ["CreateUser", "CreateAccessKey", "CreateLoginProfile"]},
+        },
     },
 ]
 
@@ -202,9 +212,41 @@ def execute_query(sql):
         return {"error": str(e), "rows": [], "columns": []}
 
 
-def validate_result(quiz, result):
+def _find_column(columns, name):
+    lower_cols = [c.lower() for c in columns]
+    target = name.lower()
+    for i, c in enumerate(lower_cols):
+        if c == target:
+            return i
+    return -1
+
+
+def _check_must_contain(v, rows, columns):
+    mc = v.get("must_contain")
+    if not mc:
+        return True, ""
+    col_idx = _find_column(columns, mc["column"])
+    if col_idx == -1:
+        return False, f"カラム '{mc['column']}' が結果に含まれていません。eventname等を含むSELECTにしてください。"
+    found = set()
+    for r in rows:
+        val = r[col_idx]
+        if val in mc["values"]:
+            found.add(val)
+        elif val not in mc["values"]:
+            return False, f"対象外のイベント '{val}' が含まれています。結果を絞り込んでください。"
+    missing = set(mc["values"]) - found
+    if missing:
+        return False, f"未検出のイベント: {', '.join(sorted(missing))}"
+    return True, ""
+
+
+def validate_result(quiz, result, sql=""):
     if result.get("error"):
         return False, "クエリでエラーが発生しました。"
+
+    if not _TABLE_RE.search(sql):
+        return False, "cloudtrail_logs テーブルを参照するクエリを書いてください。"
 
     v = quiz["validate"]
     rows = result["rows"]
@@ -212,40 +254,37 @@ def validate_result(quiz, result):
 
     if v["type"] == "scalar":
         if not rows or not rows[0]:
-            return False, f"期待値: {v['value']}、結果: なし"
+            return False, "結果が空です。COUNT等の集約関数を使ってください。"
         try:
             actual = int(rows[0][0])
         except (ValueError, IndexError):
-            return False, f"期待値: 数値、結果: {rows[0][0]}"
+            return False, f"数値が期待されていますが、結果は '{rows[0][0]}' です。COUNT(*)等を使ってください。"
         if actual == v["value"]:
             return True, f"正解！ {actual} 件です。"
-        return False, f"期待値: {v['value']}、結果: {actual}"
+        return False, f"不正解です。結果: {actual} 件"
 
     if v["type"] == "all_match":
-        col_idx = columns.index(v["column"]) if v["column"] in columns else -1
+        col_idx = _find_column(columns, v["column"])
         if col_idx == -1:
             return False, f"カラム '{v['column']}' が結果に含まれていません。"
         if not rows:
             return False, "結果が0行です。"
         mismatches = [r for r in rows if r[col_idx] != v["value"]]
         if mismatches:
-            return False, f"{len(mismatches)} 行が '{v['value']}' と一致しません。"
+            return False, f"{len(mismatches)} 行が期待値と一致しません。"
         return True, f"正解！ 全 {len(rows)} 行が一致しています。"
 
     if v["type"] == "row_range":
         lo, hi = v["min"], v["max"]
+        ok, msg = _check_must_contain(v, rows, columns)
+        if not ok:
+            return False, msg
         if lo <= len(rows) <= hi:
             return True, f"正解！ {len(rows)} 行見つかりました。"
-        return False, f"期待値: {lo}〜{hi} 行、結果: {len(rows)} 行"
+        return False, f"不正解です。結果: {len(rows)} 行"
 
     if v["type"] == "contains_value":
-        col_names_lower = [c.lower() for c in columns]
-        target = v["column"].lower()
-        col_idx = -1
-        for i, c in enumerate(col_names_lower):
-            if c == target or target in c:
-                col_idx = i
-                break
+        col_idx = _find_column(columns, v["column"])
         if col_idx == -1:
             return False, f"カラム '{v['column']}' が結果に含まれていません。"
         matches = [r for r in rows if v["substring"] in r[col_idx]]
@@ -253,17 +292,11 @@ def validate_result(quiz, result):
         if not matches:
             return False, f"'{v['substring']}' を含む行が見つかりません。"
         if expected and len(matches) != expected:
-            return False, f"期待値: {expected} 件、結果: {len(matches)} 件"
+            return False, f"不正解です。結果: {len(matches)} 件"
         return True, f"正解！ '{v['substring']}' を含む行が {len(matches)} 件見つかりました。"
 
     if v["type"] == "contains_only":
-        col_names_lower = [c.lower() for c in columns]
-        target = v["column"].lower()
-        col_idx = -1
-        for i, c in enumerate(col_names_lower):
-            if c == target:
-                col_idx = i
-                break
+        col_idx = _find_column(columns, v["column"])
         if col_idx == -1:
             return False, f"カラム '{v['column']}' が結果に含まれていません。"
         if not rows:
@@ -271,11 +304,9 @@ def validate_result(quiz, result):
         found = set()
         for r in rows:
             val = r[col_idx]
-            if not any(sub in val for sub in v["substrings"]):
+            if val not in v["substrings"]:
                 return False, f"対象外のイベント '{val}' が含まれています。結果を絞り込んでください。"
-            for sub in v["substrings"]:
-                if sub in val:
-                    found.add(sub)
+            found.add(val)
         if len(found) < len(v["substrings"]):
             missing = set(v["substrings"]) - found
             return False, f"未検出: {', '.join(sorted(missing))}"
@@ -300,7 +331,7 @@ def api_explore():
     query = body.get("query", "").strip()
     time_from = body.get("from", "")
     time_to = body.get("to", "")
-    size = min(int(body.get("size", 500)), 5000)
+    size = max(1, min(int(body.get("size", 500)), 5000))
     sort_field = body.get("sort_field", "eventtime")
     sort_order = body.get("sort_order", "DESC")
 
@@ -315,8 +346,12 @@ def api_explore():
 
     conditions = []
     if time_from:
+        if not _ISO_TS_RE.match(time_from):
+            return jsonify({"error": "Invalid 'from' format"}), 400
         conditions.append(f"eventtime >= '{time_from}'")
     if time_to:
+        if not _ISO_TS_RE.match(time_to):
+            return jsonify({"error": "Invalid 'to' format"}), 400
         conditions.append(f"eventtime <= '{time_to}'")
     if query:
         terms = [t.strip() for t in query.split(" AND ") if t.strip()]
@@ -334,24 +369,24 @@ def api_explore():
                 if field in safe_cols:
                     escaped = value.replace("'", "''")
                     if "*" in value:
-                        like_val = escaped.replace("*", "%")
-                        conditions.append(f"{field} LIKE '{like_val}'")
+                        like_val = escaped.replace("%", "\\%").replace("_", "\\_").replace("*", "%")
+                        conditions.append(f"{field} LIKE '{like_val}' ESCAPE '\\'")
                     else:
                         conditions.append(f"{field} = '{escaped}'")
             elif term.startswith("NOT "):
                 rest = term[4:].strip()
-                escaped = rest.replace("'", "''")
+                escaped = rest.replace("'", "''").replace("%", "\\%").replace("_", "\\_")
                 conditions.append(
                     f"CONCAT(COALESCE(eventsource,''), ' ', COALESCE(eventname,''), ' ', "
                     f"COALESCE(errorcode,''), ' ', COALESCE(sourceipaddress,''), ' ', "
-                    f"COALESCE(useragent,'')) NOT LIKE '%{escaped}%'"
+                    f"COALESCE(useragent,'')) NOT LIKE '%{escaped}%' ESCAPE '\\'"
                 )
             else:
-                escaped = term.replace("'", "''")
+                escaped = term.replace("'", "''").replace("%", "\\%").replace("_", "\\_")
                 conditions.append(
                     f"CONCAT(COALESCE(eventsource,''), ' ', COALESCE(eventname,''), ' ', "
                     f"COALESCE(errorcode,''), ' ', COALESCE(sourceipaddress,''), ' ', "
-                    f"COALESCE(useragent,'')) LIKE '%{escaped}%'"
+                    f"COALESCE(useragent,'')) LIKE '%{escaped}%' ESCAPE '\\'"
                 )
 
     where = " AND ".join(conditions) if conditions else "1=1"
@@ -420,15 +455,19 @@ def api_histogram():
 
     conditions = []
     if time_from:
+        if not _ISO_TS_RE.match(time_from):
+            return jsonify({"error": "Invalid 'from' format"}), 400
         conditions.append(f"eventtime >= '{time_from}'")
     if time_to:
+        if not _ISO_TS_RE.match(time_to):
+            return jsonify({"error": "Invalid 'to' format"}), 400
         conditions.append(f"eventtime <= '{time_to}'")
     if query_str:
-        escaped = query_str.replace("'", "''")
+        escaped = query_str.replace("'", "''").replace("%", "\\%").replace("_", "\\_")
         conditions.append(
             f"CONCAT(COALESCE(eventsource,''), ' ', COALESCE(eventname,''), ' ', "
             f"COALESCE(errorcode,''), ' ', COALESCE(sourceipaddress,'')) "
-            f"LIKE '%{escaped}%'"
+            f"LIKE '%{escaped}%' ESCAPE '\\'"
         )
 
     where = " AND ".join(conditions) if conditions else "1=1"
@@ -460,8 +499,12 @@ def api_field_stats():
 
     conditions = []
     if time_from:
+        if not _ISO_TS_RE.match(time_from):
+            return jsonify({"error": "Invalid 'from' format"}), 400
         conditions.append(f"eventtime >= '{time_from}'")
     if time_to:
+        if not _ISO_TS_RE.match(time_to):
+            return jsonify({"error": "Invalid 'to' format"}), 400
         conditions.append(f"eventtime <= '{time_to}'")
 
     where = " AND ".join(conditions) if conditions else "1=1"
@@ -507,7 +550,7 @@ def api_validate():
         telemetry.quiz_attempt(quiz, False, sql)
         return jsonify({"correct": False, "message": result["error"], "result": result})
 
-    correct, message = validate_result(quiz, result)
+    correct, message = validate_result(quiz, result, sql)
     telemetry.quiz_attempt(quiz, correct, sql)
     return jsonify({"correct": correct, "message": message, "result": result})
 
