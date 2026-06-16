@@ -59,12 +59,12 @@ QUIZZES = [
         "level": "Intermediate",
         "title": "ユーザーの特定",
         "description": "useridentityカラム（JSON文字列）からuserNameを抽出し、ユニークなユーザー名の一覧を取得せよ。",
-        "hint": "JSON_EXTRACT_SCALAR(useridentity, '$.userName') を使う",
+        "hint": "JSON_EXTRACT_SCALAR(useridentity, '$.userName') を使う。NULLに注意",
         "validate": {
             "type": "contains_value",
             "column": "_col0",
             "substring": "bert-jan",
-            "expected_rows": 4,
+            "expected_rows": 3,
         },
     },
     {
@@ -215,7 +215,7 @@ def execute_query(sql):
         cur = conn.cursor()
         cur.execute(sql)
         columns = [desc[0] for desc in cur.description]
-        rows = [[str(v) if v is not None else "" for v in row] for row in cur.fetchall()]
+        rows = [[str(v) if v is not None else "NULL" for v in row] for row in cur.fetchall()]
         cur.close()
         conn.close()
         return {"columns": columns, "rows": rows, "error": None}

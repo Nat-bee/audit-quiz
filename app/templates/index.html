@@ -209,7 +209,9 @@
         row.forEach((cell, i) => {
           const td = document.createElement('td');
           td.textContent = cell;
-          if (data.columns[i] === 'requestparameters' || data.columns[i] === 'responseelements' || data.columns[i] === 'useridentity') {
+          if (cell === 'NULL') {
+            td.classList.add('null-cell');
+          } else if (data.columns[i] === 'requestparameters' || data.columns[i] === 'responseelements' || data.columns[i] === 'useridentity') {
             td.classList.add('json-cell');
           }
           tr.appendChild(td);

@@ -194,6 +194,10 @@ main {
   max-width: 300px;
   color: #d2a8ff;
 }
+.null-cell {
+  color: #6e7681;
+  font-style: italic;
+}
 
 #reference-panel {
   width: 260px;
