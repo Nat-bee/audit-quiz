@@ -56,8 +56,8 @@ QUIZZES = [
         "id": 4,
         "level": "Intermediate",
         "title": "不正アクセスの検出",
-        "description": "errorcodeが 'AccessDenied' または 'Client.UnauthorizedOperation' のイベントを全て取得せよ。",
-        "hint": "WHERE errorcode IN ('AccessDenied', 'Client.UnauthorizedOperation')",
+        "description": "errorcodeが 'AccessDenied' または 'Client.UnauthorizedOperation' のイベントは何件あるか？件数を求めよ。",
+        "hint": "SELECT COUNT(*) FROM cloudtrail_logs WHERE errorcode IN ('AccessDenied', 'Client.UnauthorizedOperation')",
         "validate": {"type": "scalar", "value": 60},
     },
     {
@@ -66,7 +66,7 @@ QUIZZES = [
         "title": "権限昇格の検出",
         "description": "IAMポリシーの変更（PutRolePolicy, AttachRolePolicy）イベントを全て取得し、時系列で並べよ。実行者と変更内容を確認せよ。",
         "hint": "WHERE eventname IN ('PutRolePolicy', 'AttachRolePolicy') ORDER BY eventtime",
-        "validate": {"type": "min_rows", "count": 11},
+        "validate": {"type": "row_range", "min": 11, "max": 15},
     },
     {
         "id": 6,
@@ -75,7 +75,7 @@ QUIZZES = [
         "description": "攻撃者がCloudTrailの証跡を無効化・削除しようとした痕跡を見つけよ（DeleteTrail, StopLogging）。成功と失敗を区別せよ。",
         "hint": "WHERE eventname IN ('DeleteTrail', 'StopLogging') — errorcodeカラムで成否を判定",
         "validate": {
-            "type": "contains_any",
+            "type": "contains_only",
             "column": "eventname",
             "substrings": ["DeleteTrail", "StopLogging"],
         },
@@ -86,7 +86,7 @@ QUIZZES = [
         "title": "永続化アクセスの確立",
         "description": "攻撃者がバックドアとして作成したIAMユーザー・認証情報を特定せよ（CreateUser, CreateAccessKey, CreateLoginProfile）。",
         "hint": "WHERE eventname IN ('CreateUser', 'CreateAccessKey', 'CreateLoginProfile') ORDER BY eventtime",
-        "validate": {"type": "min_rows", "count": 8},
+        "validate": {"type": "row_range", "min": 8, "max": 12},
     },
 ]
 
@@ -232,10 +232,11 @@ def validate_result(quiz, result):
             return False, f"{len(mismatches)} 行が '{v['value']}' と一致しません。"
         return True, f"正解！ 全 {len(rows)} 行が一致しています。"
 
-    if v["type"] == "min_rows":
-        if len(rows) >= v["count"]:
+    if v["type"] == "row_range":
+        lo, hi = v["min"], v["max"]
+        if lo <= len(rows) <= hi:
             return True, f"正解！ {len(rows)} 行見つかりました。"
-        return False, f"期待値: {v['count']} 行以上、結果: {len(rows)} 行"
+        return False, f"期待値: {lo}〜{hi} 行、結果: {len(rows)} 行"
 
     if v["type"] == "contains_value":
         col_names_lower = [c.lower() for c in columns]
@@ -245,8 +246,6 @@ def validate_result(quiz, result):
             if c == target or target in c:
                 col_idx = i
                 break
-        if col_idx == -1 and columns:
-            col_idx = 0
         if col_idx == -1:
             return False, f"カラム '{v['column']}' が結果に含まれていません。"
         matches = [r for r in rows if v["substring"] in r[col_idx]]
@@ -257,7 +256,7 @@ def validate_result(quiz, result):
             return False, f"期待値: {expected} 件、結果: {len(matches)} 件"
         return True, f"正解！ '{v['substring']}' を含む行が {len(matches)} 件見つかりました。"
 
-    if v["type"] == "contains_any":
+    if v["type"] == "contains_only":
         col_names_lower = [c.lower() for c in columns]
         target = v["column"].lower()
         col_idx = -1
@@ -267,14 +266,20 @@ def validate_result(quiz, result):
                 break
         if col_idx == -1:
             return False, f"カラム '{v['column']}' が結果に含まれていません。"
+        if not rows:
+            return False, "結果が0行です。"
         found = set()
         for r in rows:
+            val = r[col_idx]
+            if not any(sub in val for sub in v["substrings"]):
+                return False, f"対象外のイベント '{val}' が含まれています。結果を絞り込んでください。"
             for sub in v["substrings"]:
-                if sub in r[col_idx]:
+                if sub in val:
                     found.add(sub)
-        if found:
-            return True, f"正解！ 検出: {', '.join(sorted(found))}"
-        return False, "該当するイベントが見つかりません。"
+        if len(found) < len(v["substrings"]):
+            missing = set(v["substrings"]) - found
+            return False, f"未検出: {', '.join(sorted(missing))}"
+        return True, f"正解！ 検出: {', '.join(sorted(found))}（{len(rows)} 件）"
 
     return False, "不明な検証タイプです。"
 
@@ -409,7 +414,7 @@ def api_histogram():
     if interval == "auto":
         interval = _auto_interval(time_from, time_to)
     if interval not in HISTOGRAM_INTERVALS:
-        interval = "1h"
+        interval = "1m"
 
     bucket_expr = HISTOGRAM_INTERVALS[interval]["expr"]
 
