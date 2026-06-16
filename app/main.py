@@ -64,7 +64,7 @@ QUIZZES = [
             "type": "contains_value",
             "column": "_col0",
             "substring": "bert-jan",
-            "expected_count": 3,
+            "expected_rows": 3,
         },
     },
     {
@@ -298,12 +298,16 @@ def validate_result(quiz, result, sql=""):
         col_idx = _find_column(columns, v["column"])
         if col_idx == -1:
             return False, f"カラム '{v['column']}' が結果に含まれていません。"
+        expected_rows = v.get("expected_rows")
+        if expected_rows and len(rows) != expected_rows:
+            return False, f"不正解です。結果: {len(rows)} 行"
+        if expected_rows:
+            values = [r[col_idx] for r in rows]
+            if len(set(values)) != len(values):
+                return False, "重複した値があります。DISTINCT を使ってユニークな一覧を取得してください。"
         matches = [r for r in rows if v["substring"] in r[col_idx]]
-        expected = v.get("expected_count")
         if not matches:
             return False, f"'{v['substring']}' を含む行が見つかりません。"
-        if expected and len(matches) != expected:
-            return False, f"不正解です。結果: {len(matches)} 件"
         return True, f"正解！ '{v['substring']}' を含む行が {len(matches)} 件見つかりました。"
 
     if v["type"] == "contains_only":
