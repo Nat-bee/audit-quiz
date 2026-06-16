@@ -64,7 +64,7 @@ QUIZZES = [
             "type": "contains_value",
             "column": "_col0",
             "substring": "bert-jan",
-            "expected_rows": 3,
+            "expected_rows": 4,
         },
     },
     {
