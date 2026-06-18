@@ -258,6 +258,8 @@ def _find_column(columns, name):
     for i, c in enumerate(lower_cols):
         if c == target:
             return i
+    if len(columns) == 1:
+        return 0
     return -1
 
 
