@@ -38,6 +38,8 @@ services:
       - TELEMETRY_DISABLED=${TELEMETRY_DISABLED:-}
     volumes:
       - ./data:/data:ro
+      - ./app/templates:/app/templates:ro
+      - ./app/static:/app/static:ro
 
 volumes:
   minio-data:
