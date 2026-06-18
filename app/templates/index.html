@@ -106,6 +106,31 @@
     let currentQuiz = null;
     const solved = new Set();
 
+    const STORAGE_KEY = 'audit-quiz-progress';
+
+    function loadProgress() {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+      catch { return {}; }
+    }
+
+    function saveQuizProgress(id, query, correct) {
+      const progress = loadProgress();
+      const prev = progress[id] || {};
+      progress[id] = { query, correct: correct || prev.correct || false };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
+    }
+
+    function restoreSolvedStates() {
+      const progress = loadProgress();
+      for (const [id, data] of Object.entries(progress)) {
+        if (data.correct) {
+          solved.add(Number(id));
+          const el = document.getElementById('status-' + id);
+          if (el) { el.textContent = '✓'; el.className = 'nav-status solved'; }
+        }
+      }
+    }
+
     function selectQuiz(id) {
       const q = quizzes.find(x => x.id === id);
       if (!q) return;
@@ -116,6 +141,10 @@
       document.getElementById('quiz-title').textContent = 'Q' + q.id + ': ' + q.title;
       document.getElementById('quiz-desc').textContent = q.description;
       document.getElementById('quiz-hint').textContent = q.hint;
+
+      const progress = loadProgress();
+      const saved = progress[id];
+      document.getElementById('sql-input').value = saved ? saved.query : '';
 
       document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
       document.querySelector(`.nav-btn[data-id="${id}"]`).classList.add('active');
@@ -182,6 +211,7 @@
           document.getElementById('status-' + currentQuiz.id).textContent = '✓';
           document.getElementById('status-' + currentQuiz.id).className = 'nav-status solved';
         }
+        saveQuizProgress(currentQuiz.id, sql, data.correct);
       } catch (e) {
         fb.textContent = '接続エラー: ' + e.message;
         fb.className = 'fb-error';
@@ -229,6 +259,7 @@
       }
     });
 
+    restoreSolvedStates();
     selectQuiz(1);
   </script>
 </body>
