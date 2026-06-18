@@ -109,7 +109,7 @@ QUIZZES = [
         "level": "Intermediate",
         "title": "権限昇格の検出",
         "description": "IAMポリシーの変更イベントを全て取得し、時系列で並べよ。実行者と変更内容を確認せよ。",
-        "hint": "eventsource が iam.amazonaws.com のイベントに注目し、ポリシー変更に関連する eventname を探せ",
+        "hint": "eventsource が iam.amazonaws.com のイベントに注目し、ポリシー変更に関連する eventname を探す",
         "validate": {
             "type": "row_range", "min": 11, "max": 15,
             "must_contain": {"column": "eventname", "values": ["PutRolePolicy", "AttachRolePolicy"]},
