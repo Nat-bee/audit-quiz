@@ -87,7 +87,7 @@ QUIZZES = [
         "id": 3,
         "level": "Intermediate",
         "title": "ユーザーの特定",
-        "description": "useridentityカラム（JSON文字列）からuserNameを抽出し、ユニークなユーザー名の一覧を求めよ。",
+        "description": "useridentityカラム（JSON文字列）からuserNameを抽出し、ユニークなユーザー名の一覧を取得せよ。",
         "hint": "JSON_EXTRACT_SCALAR(useridentity, '$.userName') を使う。NULLに注意",
         "validate": {
             "type": "contains_value",
@@ -108,7 +108,7 @@ QUIZZES = [
         "id": 5,
         "level": "Intermediate",
         "title": "権限昇格の検出",
-        "description": "IAMポリシーの変更（PutRolePolicy, AttachRolePolicy）イベントを全て取得し、時系列で並べよ。実行者と変更内容も含めること。",
+        "description": "IAMポリシーの変更（PutRolePolicy, AttachRolePolicy）イベントを全て取得し、時系列で並べよ。実行者と変更内容を確認せよ。",
         "hint": "WHERE eventname IN ('PutRolePolicy', 'AttachRolePolicy') ORDER BY eventtime",
         "validate": {
             "type": "row_range", "min": 11, "max": 15,
@@ -119,7 +119,7 @@ QUIZZES = [
         "id": 6,
         "level": "Advanced",
         "title": "証拠隠滅の試み",
-        "description": "攻撃者がCloudTrailの証跡を無効化・削除しようとした痕跡を求めよ。成功と失敗の区別も含めること。",
+        "description": "攻撃者がCloudTrailの証跡を無効化・削除しようとした痕跡を見つけよ。成功と失敗を区別せよ。",
         "hint": "CloudTrail関連のAPI操作を調べ、証跡の停止・削除に該当するeventnameを探す。errorcodeカラムで成否を判定できる",
         "validate": {
             "type": "contains_only",
