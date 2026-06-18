@@ -13,16 +13,45 @@ import telemetry
 _ISO_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 _COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
 _STRING_RE = re.compile(r"'(?:[^']|'')*'")
-_UNION_RE = re.compile(r"\bUNION\b", re.IGNORECASE)
+_PROHIBITED_KW_RE = re.compile(
+    r"\b(UNION|EXCEPT|INTERSECT|LATERAL|VALUES)\b", re.IGNORECASE,
+)
+_CTE_RE = re.compile(r"^\s*WITH\b", re.IGNORECASE)
 _TABLE_RE = re.compile(r"\bFROM\s+cloudtrail_logs\b", re.IGNORECASE)
+_SUBQUERY_IN_SELECT_RE = re.compile(
+    r"\bSELECT\b[^()]*\(", re.IGNORECASE,
+)
 
 
-def _check_sql_references_table(sql):
-    stripped = _COMMENT_RE.sub(" ", sql)
-    stripped = _STRING_RE.sub(" ", stripped)
-    if _UNION_RE.search(stripped):
-        return False
-    return bool(_TABLE_RE.search(stripped))
+def _strip_sql(sql):
+    s = _COMMENT_RE.sub(" ", sql)
+    return _STRING_RE.sub("''", s)
+
+
+def _check_sql_structure(sql):
+    stripped = _strip_sql(sql)
+    if _CTE_RE.search(stripped):
+        return False, "WITH句（CTE）は使用できません。"
+    if _PROHIBITED_KW_RE.search(stripped):
+        return False, "UNION/EXCEPT/INTERSECT/LATERAL/VALUESは使用できません。"
+    if not _TABLE_RE.search(stripped):
+        return False, "cloudtrail_logs テーブルをFROM句で参照してください。"
+    return True, ""
+
+
+def _check_scalar_sql(sql):
+    stripped = _strip_sql(sql)
+    select_match = re.match(r"\s*SELECT\s+(.*?)\s+FROM\b", stripped, re.IGNORECASE | re.DOTALL)
+    if not select_match:
+        return False, "SELECT ... FROM cloudtrail_logs の形式で書いてください。"
+    select_expr = select_match.group(1)
+    if re.search(r"\(", select_expr):
+        if not re.search(r"\b(COUNT|SUM|AVG|MIN|MAX)\s*\(", select_expr, re.IGNORECASE):
+            return False, "集約関数（COUNT等）を使ってください。サブクエリは使用できません。"
+    else:
+        if not re.search(r"\b(COUNT|SUM|AVG|MIN|MAX)\b", select_expr, re.IGNORECASE):
+            return False, "集約関数（COUNT等）を使って件数を求めてください。"
+    return True, ""
 
 app = Flask(__name__)
 
@@ -256,14 +285,18 @@ def validate_result(quiz, result, sql=""):
     if result.get("error"):
         return False, "クエリでエラーが発生しました。"
 
-    if not _check_sql_references_table(sql):
-        return False, "cloudtrail_logs テーブルを直接参照する単一のSELECTクエリを書いてください（UNIONは使用できません）。"
+    ok, msg = _check_sql_structure(sql)
+    if not ok:
+        return False, msg
 
     v = quiz["validate"]
     rows = result["rows"]
     columns = result["columns"]
 
     if v["type"] == "scalar":
+        ok, msg = _check_scalar_sql(sql)
+        if not ok:
+            return False, msg
         if not rows or not rows[0]:
             return False, "結果が空です。COUNT等の集約関数を使ってください。"
         try:
@@ -546,9 +579,15 @@ def health():
 
 @app.route("/api/query", methods=["POST"])
 def api_query():
-    sql = request.json.get("sql", "").strip()
+    body = request.json
+    if not body or not isinstance(body, dict):
+        return jsonify({"error": "不正なリクエストです"}), 400
+    sql = body.get("sql", "").strip()
     if not sql:
         return jsonify({"error": "クエリが空です"}), 400
+    stripped = _strip_sql(sql)
+    if not re.match(r"^\s*SELECT\b", stripped, re.IGNORECASE):
+        return jsonify({"error": "SELECTクエリのみ実行可能です"}), 400
 
     result = execute_query(sql)
     return jsonify(result)
@@ -556,8 +595,11 @@ def api_query():
 
 @app.route("/api/validate", methods=["POST"])
 def api_validate():
-    quiz_id = request.json.get("quiz_id")
-    sql = request.json.get("sql", "").strip()
+    body = request.json
+    if not body or not isinstance(body, dict):
+        return jsonify({"error": "不正なリクエストです"}), 400
+    quiz_id = body.get("quiz_id")
+    sql = body.get("sql", "").strip()
 
     quiz = next((q for q in QUIZZES if q["id"] == quiz_id), None)
     if not quiz:
