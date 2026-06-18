@@ -16,10 +16,8 @@ import urllib.request
 import uuid
 
 # Write-only project API key; safe to commit (PostHog keys cannot read data).
-POSTHOG_API_KEY = os.environ.get(
-    "POSTHOG_API_KEY", "phc_mT2u8q6P5TAvmSc29Cu6goEHPgqjd4inUqSebfvGGS5a"  # gitleaks:allow
-)
-POSTHOG_HOST = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")
+POSTHOG_API_KEY = "phc_mT2u8q6P5TAvmSc29Cu6goEHPgqjd4inUqSebfvGGS5a"  # gitleaks:allow
+POSTHOG_HOST = "https://us.i.posthog.com"
 
 SESSION_ID = str(uuid.uuid4())
 
@@ -28,9 +26,7 @@ _solved_lock = threading.Lock()
 
 
 def _disabled():
-    if os.environ.get("TELEMETRY_DISABLED", "").lower() in ("1", "true", "yes"):
-        return True
-    return not POSTHOG_API_KEY
+    return os.environ.get("TELEMETRY_DISABLED", "").lower() in ("1", "true", "yes")
 
 
 def _host_env():

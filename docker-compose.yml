@@ -35,7 +35,6 @@ services:
       - QUIZ_USER=${QUIZ_USER:-}
       - CODESPACES=${CODESPACES:-}
       - GITHUB_USER=${GITHUB_USER:-}
-      - POSTHOG_API_KEY=${POSTHOG_API_KEY:-}
       - TELEMETRY_DISABLED=${TELEMETRY_DISABLED:-}
     volumes:
       - ./data:/data:ro
