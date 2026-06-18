@@ -131,7 +131,7 @@ QUIZZES = [
         "id": 7,
         "level": "Advanced",
         "title": "永続化アクセスの確立",
-        "description": "攻撃者がバックドアとして作成したIAMユーザー・認証情報を求めよ。",
+        "description": "攻撃者がバックドアとして作成したIAMユーザー・認証情報を特定せよ。",
         "hint": "IAMユーザーの作成や認証情報の発行に関連するAPI操作をeventnameから探す",
         "validate": {
             "type": "row_range", "min": 8, "max": 12,
