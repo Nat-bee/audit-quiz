@@ -279,7 +279,7 @@ def _check_must_contain(v, rows, columns):
             return False, f"対象外のイベント '{val}' が含まれています。結果を絞り込んでください。"
     missing = set(mc["values"]) - found
     if missing:
-        return False, f"未検出のイベント: {', '.join(sorted(missing))}"
+        return False, "必要なイベントが一部含まれていません。条件を確認してください。"
     return True, ""
 
 
@@ -342,8 +342,8 @@ def validate_result(quiz, result, sql=""):
                 return False, "重複した値があります。DISTINCT を使ってユニークな一覧を取得してください。"
         matches = [r for r in rows if v["substring"] in r[col_idx]]
         if not matches:
-            return False, f"'{v['substring']}' を含む行が見つかりません。"
-        return True, f"正解！ '{v['substring']}' を含む行が {len(matches)} 件見つかりました。"
+            return False, "期待される値が結果に含まれていません。"
+        return True, f"正解！ {len(rows)} 件のユニークな値が見つかりました。"
 
     if v["type"] == "contains_only":
         col_idx = _find_column(columns, v["column"])
