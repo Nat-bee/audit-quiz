@@ -87,7 +87,7 @@ QUIZZES = [
         "id": 3,
         "level": "Intermediate",
         "title": "ユーザーの特定",
-        "description": "useridentityカラム（JSON文字列）からuserNameを抽出し、ユニークなユーザー名の一覧を取得せよ。",
+        "description": "useridentityカラム（JSON文字列）からuserNameを抽出し、ユニークなユーザー名の一覧を求めよ。",
         "hint": "JSON_EXTRACT_SCALAR(useridentity, '$.userName') を使う。NULLに注意",
         "validate": {
             "type": "contains_value",
@@ -108,7 +108,7 @@ QUIZZES = [
         "id": 5,
         "level": "Intermediate",
         "title": "権限昇格の検出",
-        "description": "IAMポリシーの変更（PutRolePolicy, AttachRolePolicy）イベントを全て取得し、時系列で並べよ。実行者と変更内容を確認せよ。",
+        "description": "IAMポリシーの変更（PutRolePolicy, AttachRolePolicy）イベントを全て取得し、時系列で並べよ。実行者と変更内容も含めること。",
         "hint": "WHERE eventname IN ('PutRolePolicy', 'AttachRolePolicy') ORDER BY eventtime",
         "validate": {
             "type": "row_range", "min": 11, "max": 15,
@@ -119,8 +119,8 @@ QUIZZES = [
         "id": 6,
         "level": "Advanced",
         "title": "証拠隠滅の試み",
-        "description": "攻撃者がCloudTrailの証跡を無効化・削除しようとした痕跡を見つけよ（DeleteTrail, StopLogging）。成功と失敗を区別せよ。",
-        "hint": "WHERE eventname IN ('DeleteTrail', 'StopLogging') — errorcodeカラムで成否を判定",
+        "description": "攻撃者がCloudTrailの証跡を無効化・削除しようとした痕跡を求めよ。成功と失敗の区別も含めること。",
+        "hint": "CloudTrail関連のAPI操作を調べ、証跡の停止・削除に該当するeventnameを探す。errorcodeカラムで成否を判定できる",
         "validate": {
             "type": "contains_only",
             "column": "eventname",
@@ -131,8 +131,8 @@ QUIZZES = [
         "id": 7,
         "level": "Advanced",
         "title": "永続化アクセスの確立",
-        "description": "攻撃者がバックドアとして作成したIAMユーザー・認証情報を特定せよ（CreateUser, CreateAccessKey, CreateLoginProfile）。",
-        "hint": "WHERE eventname IN ('CreateUser', 'CreateAccessKey', 'CreateLoginProfile') ORDER BY eventtime",
+        "description": "攻撃者がバックドアとして作成したIAMユーザー・認証情報を求めよ。",
+        "hint": "IAMユーザーの作成や認証情報の発行に関連するAPI操作をeventnameから探す",
         "validate": {
             "type": "row_range", "min": 8, "max": 12,
             "must_contain": {"column": "eventname", "values": ["CreateUser", "CreateAccessKey", "CreateLoginProfile"]},
